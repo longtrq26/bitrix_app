@@ -2,7 +2,6 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
-import { BITRIX_OAUTH_ENDPOINT } from 'src/common/constants';
 import { RedisService } from 'src/redis/redis.service';
 import { TokenResponse } from './interface/token-response.interface';
 
@@ -30,7 +29,7 @@ export class AuthService {
     const clientSecret = this.configService.get<string>(
       'BITRIX24_CLIENT_SECRET',
     );
-    const url = `${BITRIX_OAUTH_ENDPOINT}/oauth/token/?grant_type=authorization_code&client_id=${clientId}&client_secret=${clientSecret}&code=${code}`;
+    const url = `${this.configService.get<string>('BITRIX24_OAUTH_ENDPOINT')}/oauth/token/?grant_type=authorization_code&client_id=${clientId}&client_secret=${clientSecret}&code=${code}`;
     this.logger.log(`Requesting token for domain: ${domain}`);
 
     const { data } = await firstValueFrom(this.httpService.post(url));
@@ -66,7 +65,7 @@ export class AuthService {
     const clientSecret = this.configService.get<string>(
       'BITRIX24_CLIENT_SECRET',
     );
-    const url = `${BITRIX_OAUTH_ENDPOINT}/oauth/token/?grant_type=refresh_token&client_id=${clientId}&client_secret=${clientSecret}&refresh_token=${refreshToken}`;
+    const url = `${this.configService.get<string>('BITRIX24_OAUTH_ENDPOINT')}/oauth/token/?grant_type=refresh_token&client_id=${clientId}&client_secret=${clientSecret}&refresh_token=${refreshToken}`;
     const { data } = await firstValueFrom(this.httpService.post(url));
 
     const { access_token, refresh_token, expires_in } = data;
