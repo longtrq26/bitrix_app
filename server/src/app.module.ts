@@ -9,6 +9,7 @@ import { LeadsModule } from './leads/leads.module';
 import { LoggerModule } from './logger/logger.module';
 import { RedisService } from './redis/redis.service';
 import { WebhookModule } from './webhook/webhook.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { WebhookModule } from './webhook/webhook.module';
     AuthModule,
     LeadsModule,
     WebhookModule,
+    AnalyticsModule,
   ],
   controllers: [AuthController],
   providers: [RedisService, AuthService],
