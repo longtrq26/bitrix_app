@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 import { BITRIX_OAUTH_ENDPOINT } from 'src/common/constants';
@@ -36,10 +36,14 @@ export class AuthService {
     const { data } = await firstValueFrom(this.httpService.post(url));
     const { access_token, refresh_token, expires_in, member_id } = data;
 
-    const tokenKey = `token:${member_id}`;
     await this.redisService.set(
-      tokenKey,
-      JSON.stringify({ access_token, refresh_token, expires_in, domain }),
+      `token:${member_id}`,
+      JSON.stringify({
+        access_token,
+        refresh_token,
+        expires_in,
+        domain,
+      }),
       expires_in,
     );
 
@@ -74,5 +78,15 @@ export class AuthService {
     );
     this.logger.log(`Refreshed and stored new token for member_id=${memberId}`);
     return access_token;
+  }
+
+  async getDomain(memberId: string): Promise<string> {
+    const tokenData = await this.redisService.get(`token:${memberId}`);
+    if (!tokenData) {
+      throw new UnauthorizedException('No token data in Redis');
+    }
+
+    const parsed = JSON.parse(tokenData);
+    return parsed.domain;
   }
 }
