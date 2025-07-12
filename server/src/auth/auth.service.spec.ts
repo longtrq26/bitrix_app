@@ -71,29 +71,29 @@ describe('AuthService', () => {
 
   describe('generateAuthUrl', () => {
     it('should generate the correct Bitrix24 authorization URL', () => {
-      const domain = 'test.bitrix24.com';
+      const mockDomain = 'test.bitrix24.com';
       const expectedClientId = 'mockClientId';
-      const authUrl = service.generateAuthUrl(domain);
+      const mockAuthUrl = service.generateAuthUrl(mockDomain);
 
       expect(configService.get).toHaveBeenCalledWith('BITRIX24_CLIENT_ID');
-      expect(authUrl).toContain(
-        `https://${domain}/oauth/authorize?client_id=${expectedClientId}&state=`,
+      expect(mockAuthUrl).toContain(
+        `https://${mockDomain}/oauth/authorize?client_id=${expectedClientId}&state=`,
       );
-      expect(authUrl).toMatch(/&state=\d+$/);
+      expect(mockAuthUrl).toMatch(/&state=\d+$/);
     });
   });
 
   describe('generateAuthUrl', () => {
     it('should generate the correct Bitrix24 authorization URL', () => {
-      const domain = 'test.bitrix24.com';
+      const mockDomain = 'test.bitrix24.com';
       const expectedClientId = 'mockClientId';
-      const authUrl = service.generateAuthUrl(domain);
+      const mockAuthUrl = service.generateAuthUrl(mockDomain);
 
       expect(configService.get).toHaveBeenCalledWith('BITRIX24_CLIENT_ID');
-      expect(authUrl).toContain(
-        `https://${domain}/oauth/authorize?client_id=${expectedClientId}&state=`,
+      expect(mockAuthUrl).toContain(
+        `https://${mockDomain}/oauth/authorize?client_id=${expectedClientId}&state=`,
       );
-      expect(authUrl).toMatch(/&state=\d+$/);
+      expect(mockAuthUrl).toMatch(/&state=\d+$/);
     });
   });
 
@@ -120,6 +120,7 @@ describe('AuthService', () => {
       expect(configService.get).toHaveBeenCalledWith('BITRIX24_OAUTH_ENDPOINT'); // Check for this call
 
       const expectedUrl = `https://oauth.bitrix.info/oauth/token/?grant_type=authorization_code&client_id=mockClientId&client_secret=mockClientSecret&code=${mockCode}`;
+
       expect(httpService.post).toHaveBeenCalledWith(expectedUrl);
 
       const expectedRedisKey = `token:${mockTokenResponse.member_id}`;
@@ -129,6 +130,7 @@ describe('AuthService', () => {
         expires_in: mockTokenResponse.expires_in,
         domain: mockDomain,
       });
+
       expect(redisService.set).toHaveBeenCalledWith(
         expectedRedisKey,
         expectedRedisValue,
@@ -202,9 +204,10 @@ describe('AuthService', () => {
 
       expect(configService.get).toHaveBeenCalledWith('BITRIX24_CLIENT_ID');
       expect(configService.get).toHaveBeenCalledWith('BITRIX24_CLIENT_SECRET');
-      expect(configService.get).toHaveBeenCalledWith('BITRIX24_OAUTH_ENDPOINT'); // Check for this call
+      expect(configService.get).toHaveBeenCalledWith('BITRIX24_OAUTH_ENDPOINT');
 
       const expectedUrl = `https://oauth.bitrix.info/oauth/token/?grant_type=refresh_token&client_id=mockClientId&client_secret=mockClientSecret&refresh_token=${mockRefreshToken}`;
+
       expect(httpService.post).toHaveBeenCalledWith(expectedUrl);
 
       const expectedRedisKey = `token:${mockMemberId}`;
@@ -213,6 +216,7 @@ describe('AuthService', () => {
         refresh_token: mockRefreshedTokenResponse.refresh_token,
         expires_in: mockRefreshedTokenResponse.expires_in,
       });
+
       expect(redisService.set).toHaveBeenCalledWith(
         expectedRedisKey,
         expectedRedisValue,
