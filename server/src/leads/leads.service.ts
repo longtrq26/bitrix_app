@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import Bottleneck from 'bottleneck';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from 'src/auth/auth.service';
@@ -25,6 +25,11 @@ export class LeadsService {
     if (cached) return JSON.parse(cached);
 
     const accessToken = await this.authService.getAccessToken(memberId);
+    if (!accessToken) {
+      this.logger.warn(`Access token not found for memberId: ${memberId}`);
+      throw new UnauthorizedException('Access token not available.');
+    }
+
     const endpoint = `https://${query.domain}/rest/batch`;
 
     const filterParams: string[] = [];
@@ -83,6 +88,10 @@ export class LeadsService {
 
   async createLead(dto: CreateLeadDto, memberId: string) {
     const accessToken = await this.authService.getAccessToken(memberId);
+    if (!accessToken) {
+      this.logger.warn(`Access token not found for memberId: ${memberId}`);
+      throw new UnauthorizedException('Access token not available.');
+    }
 
     const response = await this.limiter.schedule(() =>
       firstValueFrom(
@@ -109,6 +118,10 @@ export class LeadsService {
 
   async updateLead(id: string, dto: UpdateLeadDto, memberId: string) {
     const accessToken = await this.authService.getAccessToken(memberId);
+    if (!accessToken) {
+      this.logger.warn(`Access token not found for memberId: ${memberId}`);
+      throw new UnauthorizedException('Access token not available.');
+    }
 
     const response = await this.limiter.schedule(() =>
       firstValueFrom(
@@ -136,7 +149,16 @@ export class LeadsService {
 
   async deleteLead(id: string, memberId: string) {
     const accessToken = await this.authService.getAccessToken(memberId);
+    if (!accessToken) {
+      this.logger.warn(`Access token not found for memberId: ${memberId}`);
+      throw new UnauthorizedException('Access token not available.');
+    }
+
     const domain = await this.authService.getDomain(memberId);
+    if (!domain) {
+      this.logger.warn(`Domain not found for memberId: ${memberId}`);
+      throw new UnauthorizedException('Domain not available.');
+    }
 
     const response = await this.limiter.schedule(() =>
       firstValueFrom(
