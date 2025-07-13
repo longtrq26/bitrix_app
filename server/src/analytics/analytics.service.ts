@@ -54,7 +54,8 @@ export class AnalyticsService {
     const convertedLeads = deals
       .filter((deal) => deal.LEAD_ID)
       .map((deal) => deal.DEAL_ID);
-    const conversionRate = convertedLeads.length / leads.length;
+    const conversionRate =
+      leads.length === 0 ? 0 : convertedLeads.length / leads.length;
 
     const result = {
       leadByStatus,
@@ -141,7 +142,9 @@ export class AnalyticsService {
     const taskCountByUser = tasks.reduce(
       (acc, task) => {
         const userId = task.RESPONSIBLE_ID;
-        acc[userId] = (acc[userId] || 0) + 1;
+        if (userId && userId !== 'null' && userId !== 'undefined') {
+          acc[userId] = (acc[userId] || 0) + 1;
+        }
         return acc;
       },
       {} as Record<string, number>,

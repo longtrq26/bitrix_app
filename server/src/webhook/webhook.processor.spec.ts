@@ -1,22 +1,16 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
-// Removed: import { Logger } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { AxiosResponse } from 'axios';
 import { Job } from 'bull';
 import { of, throwError } from 'rxjs';
-import { AxiosResponse } from 'axios';
-
-// Import processor cần test
+import { AuthService } from '../auth/auth.service';
 import { WebhookProcessor } from './webhook.processor';
-// Import các dependency để mock
-import { AuthService } from '../auth/auth.service'; // Điều chỉnh đường dẫn nếu cần
 
 describe('WebhookProcessor', () => {
   let processor: WebhookProcessor;
   let httpService: HttpService;
   let authService: AuthService;
-  // Removed: let logger: Logger;
 
-  // Mock implementations cho các dependency
   const mockHttpService = {
     post: jest.fn(),
   };
@@ -25,14 +19,6 @@ describe('WebhookProcessor', () => {
     getAccessToken: jest.fn(),
     getDomain: jest.fn(),
   };
-
-  // Removed: Mock Logger constant
-  // const mockLogger = {
-  //   log: jest.fn(),
-  //   error: jest.fn(),
-  //   warn: jest.fn(),
-  //   debug: jest.fn(),
-  // };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -46,21 +32,13 @@ describe('WebhookProcessor', () => {
           provide: AuthService,
           useValue: mockAuthService,
         },
-        // Removed: Logger provider
-        // {
-        //   provide: Logger,
-        //   useValue: mockLogger,
-        // },
       ],
     }).compile();
 
     processor = module.get<WebhookProcessor>(WebhookProcessor);
     httpService = module.get<HttpService>(HttpService);
     authService = module.get<AuthService>(AuthService);
-    // Removed: Logger instance retrieval
-    // logger = module.get<Logger>(Logger);
 
-    // Clear all mocks before each test to ensure isolation
     jest.clearAllMocks();
   });
 
@@ -68,7 +46,6 @@ describe('WebhookProcessor', () => {
     expect(processor).toBeDefined();
   });
 
-  // --- Tests cho getRoundRobinUser ---
   describe('getRoundRobinUser', () => {
     const memberId = 'test_member_id';
     const accessToken = 'mock_access_token';
@@ -98,7 +75,6 @@ describe('WebhookProcessor', () => {
         {},
         { headers: { Authorization: `Bearer ${accessToken}` } },
       );
-      // Check if the returned ID is one of the mock user IDs
       expect(mockUsers.map((u) => u.ID)).toContain(userId);
     });
 
@@ -110,6 +86,7 @@ describe('WebhookProcessor', () => {
       await expect(processor.getRoundRobinUser(memberId)).rejects.toThrow(
         'API Error fetching users',
       );
+
       expect(mockAuthService.getAccessToken).toHaveBeenCalled();
       expect(mockAuthService.getDomain).toHaveBeenCalled();
       expect(mockHttpService.post).toHaveBeenCalled();
@@ -124,15 +101,15 @@ describe('WebhookProcessor', () => {
       await expect(processor.getRoundRobinUser(memberId)).rejects.toThrow(
         'Invalid token for user.get',
       );
+
       expect(mockHttpService.post).toHaveBeenCalledWith(
         `https://${domain}/rest/user.get`,
         {},
-        { headers: { Authorization: `Bearer ${null}` } }, // Should be 'Bearer null'
+        { headers: { Authorization: `Bearer ${null}` } },
       );
     });
   });
 
-  // --- Tests cho handleCreateTask ---
   describe('handleCreateTask', () => {
     const memberId = 'test_member_id';
     const accessToken = 'mock_access_token';
@@ -146,13 +123,12 @@ describe('WebhookProcessor', () => {
     };
     const mockJob: Job = {
       data: { lead: leadData, memberId },
-    } as Job; // Cast to Job for simplicity in test
+    } as Job;
 
     beforeEach(() => {
       mockAuthService.getAccessToken.mockResolvedValue(accessToken);
       mockAuthService.getDomain.mockResolvedValue(domain);
-      // Spy on getRoundRobinUser and mock its return value
-      jest.spyOn(processor, 'getRoundRobinUser').mockResolvedValue(1); // Mock a fixed user ID
+      jest.spyOn(processor, 'getRoundRobinUser').mockResolvedValue(1);
     });
 
     it('should create a task for the lead', async () => {
@@ -170,7 +146,7 @@ describe('WebhookProcessor', () => {
       const expectedTaskPayload = {
         TITLE: `Follow up Lead: ${leadData.TITLE}`,
         DESCRIPTION: `Contact Info:\nPhone: ${leadData.PHONE}\nEmail: ${leadData.EMAIL}\nSource: ${leadData.SOURCE_ID}`,
-        RESPONSIBLE_ID: 1, // From mocked getRoundRobinUser
+        RESPONSIBLE_ID: 1,
         UF_CRM_TASK: [`L_${leadData.ID}`],
       };
 
@@ -179,7 +155,6 @@ describe('WebhookProcessor', () => {
         { fields: expectedTaskPayload },
         { headers: { Authorization: `Bearer ${accessToken}` } },
       );
-      // Removed: expect(logger.log).toHaveBeenCalledWith(...)
       expect(result).toEqual(mockResponseData);
     });
 
@@ -191,11 +166,9 @@ describe('WebhookProcessor', () => {
       await expect(processor.handleCreateTask(mockJob)).rejects.toThrow(
         'Task creation failed',
       );
-      // Removed: expect(logger.log).not.toHaveBeenCalled();
     });
   });
 
-  // --- Tests cho handleCreateDeal ---
   describe('handleCreateDeal', () => {
     const memberId = 'test_member_id';
     const accessToken = 'mock_access_token';
@@ -236,7 +209,6 @@ describe('WebhookProcessor', () => {
         { fields: expectedDealPayload },
         { headers: { Authorization: `Bearer ${accessToken}` } },
       );
-      // Removed: expect(logger.log).toHaveBeenCalledWith(...)
       expect(result).toEqual(mockResponseData);
     });
 
@@ -261,7 +233,7 @@ describe('WebhookProcessor', () => {
       const expectedDealPayload = {
         TITLE: `Deal for ${leadDataWithoutOpportunity.TITLE}`,
         LEAD_ID: leadDataWithoutOpportunity.ID,
-        OPPORTUNITY: 1000, // Default value
+        OPPORTUNITY: 1000,
       };
 
       expect(httpService.post).toHaveBeenCalledWith(
@@ -280,7 +252,6 @@ describe('WebhookProcessor', () => {
       await expect(processor.handleCreateDeal(mockJob)).rejects.toThrow(
         'Deal creation failed',
       );
-      // Removed: expect(logger.log).not.toHaveBeenCalled();
     });
   });
 });
