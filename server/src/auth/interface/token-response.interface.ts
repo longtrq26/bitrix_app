@@ -4,5 +4,4 @@ export interface TokenResponse {
   expires_in: number;
   member_id: string;
   client_endpoint: string;
-  [key: string]: any;
 }

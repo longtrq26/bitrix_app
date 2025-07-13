@@ -2,14 +2,12 @@ import { HttpModule } from '@nestjs/axios';
 import { BullModule } from '@nestjs/bull';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AuthController } from './auth/auth.controller';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
-import { AuthService } from './auth/auth.service';
 import { LeadsModule } from './leads/leads.module';
 import { LoggerModule } from './logger/logger.module';
-import { RedisService } from './redis/redis.service';
+import { RedisModule } from './redis/redis.module';
 import { WebhookModule } from './webhook/webhook.module';
-import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -27,12 +25,11 @@ import { AnalyticsModule } from './analytics/analytics.module';
       }),
     }),
     LoggerModule,
+    RedisModule,
     AuthModule,
     LeadsModule,
     WebhookModule,
     AnalyticsModule,
   ],
-  controllers: [AuthController],
-  providers: [RedisService, AuthService],
 })
 export class AppModule {}
