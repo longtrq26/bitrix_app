@@ -4,9 +4,10 @@ import { AuthService } from 'src/auth/auth.service';
 import { RedisService } from 'src/redis/redis.service';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
-  imports: [HttpModule],
+  imports: [HttpModule, AuthModule],
   controllers: [LeadsController],
   providers: [LeadsService, RedisService, AuthService],
 })

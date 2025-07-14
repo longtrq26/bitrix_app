@@ -15,24 +15,18 @@ export class OAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const memberId = request.headers['x-member-id'];
 
-    if (!memberId) {
+    if (!memberId || typeof memberId !== 'string') {
       throw new HttpException('Missing member id', HttpStatus.UNAUTHORIZED);
     }
 
-    let token = await this.authService.getAccessToken(memberId);
-    if (!token) {
-      const tokenData = await this.authService.getTokenData(memberId);
-      if (tokenData && tokenData.refresh_token) {
-        token = await this.authService.refreshAccessToken(
-          tokenData.refresh_token,
-          memberId,
-        );
-      } else {
-        throw new HttpException('Token not found', HttpStatus.UNAUTHORIZED);
-      }
+    const accessToken = await this.authService.ensureValidAccessToken(memberId);
+
+    if (!accessToken) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
 
-    request.bitrixAccessToken = token;
+    request.bitrixAccessToken = accessToken;
+
     return true;
   }
 }

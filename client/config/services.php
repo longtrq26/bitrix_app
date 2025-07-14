@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'backend' => [
+        'url' => env('BACKEND_API_URL'),
+    ],
+
+
 ];

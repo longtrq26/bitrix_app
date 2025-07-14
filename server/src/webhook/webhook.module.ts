@@ -6,6 +6,7 @@ import { RedisService } from 'src/redis/redis.service';
 import { WebhookController } from './webhook.controller';
 import { WebhookProcessor } from './webhook.processor';
 import { WebhookService } from './webhook.service';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { WebhookService } from './webhook.service';
     BullModule.registerQueue({
       name: 'webhook',
     }),
+    AuthModule,
   ],
   providers: [WebhookService, WebhookProcessor, AuthService, RedisService],
   controllers: [WebhookController],
