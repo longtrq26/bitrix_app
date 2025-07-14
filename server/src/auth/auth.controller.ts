@@ -16,7 +16,7 @@ import { Response } from 'express';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
 import { AuthService } from './auth.service';
-import { AuthRedirectDto } from './dto/auth-redirect.dto';
+import { AuthDomainDto } from './dto/auth-domain.dto';
 
 @ApiTags('auth')
 @Controller('api/auth')
@@ -27,17 +27,17 @@ export class AuthController {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
+  // Endpoint redirect user đến trang OAuth của Bitrix24
   @Get('redirect')
   @ApiOperation({ summary: 'Redirect to Bitrix24 OAuth authorization' })
   @ApiQuery({ name: 'domain', type: String })
   @UsePipes(new ValidationPipe({ transform: true }))
-  async redirectToBitrix(
-    @Query() query: AuthRedirectDto,
-    @Res() res: Response,
-  ) {
+  async redirectToBitrix(@Query() query: AuthDomainDto, @Res() res: Response) {
     try {
+      // Gọi authService để tạo URL bao gồm cả state để prevent CSRF
       const { url } = await this.authService.generateAuthUrl(query.domain);
 
+      // Redirect browser của user đến URL này
       return res.redirect(url);
     } catch (error) {
       this.logger.error('Redirect failed', error);
@@ -48,6 +48,7 @@ export class AuthController {
     }
   }
 
+  // Endpoint xử lý callback từ Bitrix24 sau khi người dùng đã cấp quyền hoặc từ chối
   @Get('callback')
   @ApiOperation({ summary: 'Handle Bitrix24 OAuth callback' })
   @ApiQuery({ name: 'code' })
@@ -55,34 +56,40 @@ export class AuthController {
   @ApiQuery({ name: 'state' })
   async handleCallback(
     @Query('code') code: string,
-    @Query('domain') domain: string,
+    @Query() query: AuthDomainDto,
     @Query('state') state: string,
     @Res() res: Response,
   ) {
-    if (!domain.endsWith('.bitrix24.vn')) {
+    // Kiểm tra domain có hợp lệ và kết thúc bằng '.bitrix24.vn'
+    if (!query.domain.endsWith('.bitrix24.vn')) {
       throw new BadRequestException('Invalid domain');
     }
 
-    const isValid = await this.authService.validateState(domain, state);
+    // Xác thực state
+    const isValid = await this.authService.validateState(query.domain, state);
     if (!isValid) {
       throw new BadRequestException('Invalid state token');
     }
 
+    // Gọi authService để đổi authorization code lấy token và tạo session token
     const { sessionToken } = await this.authService.exchangeCodeForToken(
       code,
-      domain,
+      query.domain,
     );
 
+    // Redirect user trở lại client với session token trong query parameter
     return res.redirect(
       `${this.config.get('CLIENT_REDIRECT_URL')}/auth/callback?session=${sessionToken}`,
     );
   }
 
+  // Endpoint để lấy domain của Bitrix24 dựa trên memberId
   @Get('domain')
   @ApiOperation({ summary: 'Get Bitrix24 domain from member ID' })
   @ApiQuery({ name: 'memberId' })
   async getDomain(@Query('memberId') memberId: string, @Res() res: Response) {
     try {
+      // Gọi authService để lấy domain
       const domain = await this.authService.getDomain(memberId);
 
       return res.status(200).send(domain);
@@ -91,6 +98,7 @@ export class AuthController {
     }
   }
 
+  // Endpoint để lấy memberId từ session token
   @Get('member')
   @ApiOperation({ summary: 'Get memberId from session token' })
   @ApiQuery({ name: 'session' })
@@ -99,6 +107,7 @@ export class AuthController {
     @Res() res: Response,
   ) {
     try {
+      // Gọi authService để lấy memberId từ session token
       const memberId =
         await this.authService.getMemberIdFromSession(sessionToken);
 
