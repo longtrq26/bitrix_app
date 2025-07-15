@@ -17,6 +17,7 @@ import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import { Logger } from 'winston';
 import { AuthService } from './auth.service';
 import { AuthDomainDto } from './dto/auth-domain.dto';
+import { MemberId } from 'src/common/decorators/member-id.decorator';
 
 @ApiTags('auth')
 @Controller('api/auth')
@@ -114,6 +115,24 @@ export class AuthController {
       return res.status(200).json({ memberId });
     } catch (err) {
       return res.status(401).send('Invalid session');
+    }
+  }
+
+  @Get('token')
+  @ApiOperation({ summary: 'Get access token from member ID' })
+  @ApiQuery({ name: 'memberId' })
+  async getAccessToken(@MemberId() memberId: string, @Res() res: Response) {
+    try {
+      const accessToken = await this.authService.getAccessToken(memberId);
+
+      if (!accessToken) {
+        return res.status(401).json({ message: 'Token not found' });
+      }
+
+      return res.status(200).json({ access_token: accessToken });
+    } catch (error) {
+      this.logger.error('Failed to get access token', error);
+      return res.status(500).json({ message: 'Internal server error' });
     }
   }
 }

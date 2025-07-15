@@ -19,5 +19,9 @@ export class QueryLeadDto {
 
   @IsOptional()
   @IsString()
+  date?: string;
+
+  @IsOptional()
+  @IsString()
   domain?: string;
 }

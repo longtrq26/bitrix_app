@@ -12,7 +12,14 @@ import { AuthTokenService } from './services/auth-token.service';
 
 @Injectable()
 export class AuthService {
-  private readonly limiter = new Bottleneck({ maxConcurrent: 1, minTime: 500 });
+  private readonly limiter = new Bottleneck({
+    maxConcurrent: 1,
+    minTime: 500,
+    retryOptions: {
+      maxRetries: 3,
+      delay: (retryCount) => retryCount * 1000,
+    },
+  });
 
   constructor(
     private readonly http: HttpService,
