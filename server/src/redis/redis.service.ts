@@ -52,9 +52,9 @@ export class RedisService implements OnModuleInit {
   }
 
   async deleteByPrefix(prefix: string): Promise<void> {
-    const keys = await this.client.keys(prefix);
+    const keys = await this.client.keys(`${prefix}*`);
     if (keys.length > 0) {
-      await this.client.del(keys);
+      await this.client.del(...keys);
     }
   }
 }

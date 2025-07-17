@@ -15,4 +15,10 @@ Route::get('/auth/callback', [AuthController::class, 'handleCallback']);
 
 Route::middleware('web')->group(function () {
     Route::get('/leads', [LeadController::class, 'index']);
+    Route::get('/leads/create', [LeadController::class, 'create']);
+    Route::post('/leads', [LeadController::class, 'store']);
+    Route::get('/leads/{id}/edit', [LeadController::class, 'edit']);
+    Route::post('/leads/{id}/update', [LeadController::class, 'update']);
+    Route::delete('/leads/{id}', [LeadController::class, 'destroy']);
+    Route::get('/leads/json', [LeadController::class, 'json'])->name('leads.json');
 });

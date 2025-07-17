@@ -135,7 +135,7 @@ export class LeadsService {
 
       this.logger.info(`[LeadsService] Lead created`);
 
-      await this.redisService.deleteByPrefix(`leads:*:${memberId}`);
+      await this.redisService.deleteByPrefix(`leads:${memberId}:`);
 
       return data;
     } catch (error) {
@@ -180,7 +180,7 @@ export class LeadsService {
 
       this.logger.info(`[LeadsService] Lead ${id} updated`);
 
-      await this.redisService.deleteByPrefix(`leads:*:${memberId}`);
+      await this.redisService.deleteByPrefix(`leads:${memberId}:`);
 
       return data;
     } catch (error) {
@@ -223,7 +223,7 @@ export class LeadsService {
 
       this.logger.info(`[LeadsService] Lead ${id} deleted`);
 
-      await this.redisService.deleteByPrefix(`leads:*:${memberId}`);
+      await this.redisService.deleteByPrefix(`leads:${memberId}:`);
 
       return data;
     } catch (error) {

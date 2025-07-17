@@ -104,4 +104,24 @@ class LeadController extends Controller
 
         return redirect('/leads')->with('success', 'Lead đã bị xóa');
     }
+
+    public function json(Request $request)
+    {
+        $domain = Session::get('domain');
+        if (!$domain) {
+            return response()->json(['error' => 'No domain'], 400);
+        }
+
+        $queryParams = $request->only(['search', 'status', 'sort', 'date']);
+        $queryParams['domain'] = $domain;
+
+        $response = Http::withHeaders([
+            'X-Session-Token' => Session::get('session_token'),
+            'X-Member-Id' => Session::get('member_id')
+        ])
+            ->withOptions(['verify' => false])
+            ->get(env('BASE_API_URL') . '/leads', $queryParams);
+
+        return $response->json();
+    }
 }
