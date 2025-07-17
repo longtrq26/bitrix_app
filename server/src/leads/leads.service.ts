@@ -6,6 +6,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { AmqpConnection } from '@golevelup/nestjs-rabbitmq';
 import Bottleneck from 'bottleneck';
 import * as crypto from 'crypto';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
@@ -17,14 +18,24 @@ import { CreateLeadDto } from './dto/create-lead.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 
+export class BitrixApiException extends HttpException {
+  constructor(error: any) {
+    super(
+      error?.error_description || 'Bitrix24 API error',
+      error?.status || HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
 @Injectable()
 export class LeadsService {
   private readonly limiter = new Bottleneck({
     maxConcurrent: 1,
     minTime: 500,
     retryOptions: {
-      maxRetries: 3,
-      delay: (retryCount) => retryCount * 1000,
+      maxRetries: 5,
+      delay: (retryCount) => Math.pow(2, retryCount) * 1000,
+      retryableErrors: [429, 503],
     },
   });
 
@@ -32,13 +43,13 @@ export class LeadsService {
     private readonly httpService: HttpService,
     private readonly redisService: RedisService,
     private readonly authService: AuthService,
+    private readonly amqpConnection: AmqpConnection,
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
   async getLeads(dto: QueryLeadDto, memberId: string) {
     this.validateDomain(dto.domain);
     const cacheKey = this.buildCacheKey(memberId, dto);
-
     const cached = await this.redisService.get(cacheKey);
     if (cached) {
       this.logger.debug(`Cache hit: ${cacheKey}`);
@@ -60,6 +71,8 @@ export class LeadsService {
     const cmd = {
       leads: paramString ? `crm.lead.list?${paramString}` : `crm.lead.list`,
       fields: 'crm.lead.fields',
+      statuses: 'crm.status.list?filter[ENTITY_ID]=STATUS',
+      sources: 'crm.status.list?filter[ENTITY_ID]=SOURCE',
     };
 
     this.logger.debug(`Batch CMD: ${JSON.stringify(cmd)}`);
@@ -77,14 +90,14 @@ export class LeadsService {
 
       const data = response.data;
       if (!data || data.error) {
-        const message = data?.error_description || 'Unknown Bitrix24 error';
-        this.logger.error(`[LeadsService] Bitrix error: ${message}`);
-        throw new HttpException(message, HttpStatus.BAD_REQUEST);
+        throw new BitrixApiException(data);
       }
 
       const leads = data?.result?.result?.leads || [];
       const fields = data?.result?.result?.fields || {};
-      const result = { leads, fields };
+      const statuses = data?.result?.result?.statuses || [];
+      const sources = data?.result?.result?.sources || [];
+      const result = { leads, fields, statuses, sources };
 
       if (leads.length === 0) {
         this.logger.warn(`[LeadsService] No leads found`);
@@ -92,15 +105,13 @@ export class LeadsService {
         this.logger.info(`[LeadsService] ${leads.length} leads fetched`);
       }
 
-      await this.redisService.set(cacheKey, JSON.stringify(result), 600);
+      const ttl = leads.length > 0 ? 300 : 600;
+      await this.redisService.set(cacheKey, JSON.stringify(result), ttl);
 
       return result;
     } catch (error) {
       this.logger.error(`Failed to fetch leads: ${error.message}`);
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to fetch leads',
-        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new BitrixApiException(error);
     }
   }
 
@@ -129,21 +140,21 @@ export class LeadsService {
 
       const data = response.data;
       if (data.error) {
-        this.logger.error(`Create lead error: ${data.error_description}`);
-        throw new HttpException(data.error_description, HttpStatus.BAD_REQUEST);
+        throw new BitrixApiException(data);
       }
 
-      this.logger.info(`[LeadsService] Lead created`);
-
+      this.logger.info(`[LeadsService] Lead created: ${data.result}`);
       await this.redisService.deleteByPrefix(`leads:${memberId}:`);
+      await this.amqpConnection.publish('leads_exchange', 'lead.created', {
+        leadId: data.result,
+        memberId,
+        domain: dto.domain,
+      });
 
       return data;
     } catch (error) {
       this.logger.error(`Failed to create lead: ${error.message}`);
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to create lead',
-        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new BitrixApiException(error);
     }
   }
 
@@ -172,23 +183,21 @@ export class LeadsService {
 
       const data = response.data;
       if (data.error) {
-        this.logger.error(
-          `[LeadsService] Update lead error: ${data.error_description}`,
-        );
-        throw new HttpException(data.error_description, HttpStatus.BAD_REQUEST);
+        throw new BitrixApiException(data);
       }
 
       this.logger.info(`[LeadsService] Lead ${id} updated`);
-
       await this.redisService.deleteByPrefix(`leads:${memberId}:`);
+      await this.amqpConnection.publish('leads_exchange', 'lead.updated', {
+        leadId: id,
+        memberId,
+        domain: dto.domain,
+      });
 
       return data;
     } catch (error) {
       this.logger.error(`Failed to update lead: ${error.message}`);
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to update lead',
-        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new BitrixApiException(error);
     }
   }
 
@@ -215,23 +224,21 @@ export class LeadsService {
 
       const data = response.data;
       if (data.error) {
-        this.logger.error(
-          `[LeadsService] Delete lead error: ${data.error_description}`,
-        );
-        throw new HttpException(data.error_description, HttpStatus.BAD_REQUEST);
+        throw new BitrixApiException(data);
       }
 
       this.logger.info(`[LeadsService] Lead ${id} deleted`);
-
       await this.redisService.deleteByPrefix(`leads:${memberId}:`);
+      await this.amqpConnection.publish('leads_exchange', 'lead.deleted', {
+        leadId: id,
+        memberId,
+        domain,
+      });
 
       return data;
     } catch (error) {
       this.logger.error(`Failed to delete lead: ${error.message}`);
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to delete lead',
-        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new BitrixApiException(error);
     }
   }
 
@@ -240,26 +247,20 @@ export class LeadsService {
 
     if (query.search) {
       filterParams.push(
-        `filter[%TITLE]=${encodeURIComponent(query.search)}`,
-        `filter[%NAME]=${encodeURIComponent(query.search)}`,
-        `filter[%EMAIL]=${encodeURIComponent(query.search)}`,
-        `filter[%PHONE]=${encodeURIComponent(query.search)}`,
+        `filter[TITLE]=${query.search}`,
+        `filter[NAME]=${query.search}`,
+        `filter[EMAIL]=${query.search}`,
+        `filter[PHONE]=${query.search}`,
       );
     }
     if (query.status) {
-      filterParams.push(
-        `filter[STATUS_ID]=${encodeURIComponent(query.status)}`,
-      );
+      filterParams.push(`filter[STATUS_ID]=${query.status}`);
     }
     if (query.source) {
-      filterParams.push(
-        `filter[SOURCE_ID]=${encodeURIComponent(query.source)}`,
-      );
+      filterParams.push(`filter[SOURCE_ID]=${query.source}`);
     }
     if (query.date) {
-      filterParams.push(
-        `filter[>DATE_CREATE]=${encodeURIComponent(query.date)}`,
-      );
+      filterParams.push(`filter[>DATE_CREATE]=${query.date}`);
     }
 
     return filterParams;
@@ -284,7 +285,6 @@ export class LeadsService {
       .createHash('md5')
       .update(JSON.stringify(relevantQuery))
       .digest('hex');
-
     return `leads:${memberId}:${hash}`;
   }
 }

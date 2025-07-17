@@ -1,23 +1,68 @@
-@extends('layouts.app')
+<!DOCTYPE html>
+<html>
 
-@section('content')
-    <div class="container mx-auto p-6">
-        <h1 class="text-2xl font-bold mb-4">Cập nhật Lead</h1>
+<head>
+    <title>Cập nhật Lead - Bitrix24 CRM Automation Suite</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.css" rel="stylesheet">
+</head>
 
-        <form method="POST" action="/leads/{{ $id }}/update">
-            @csrf
+<body class="{{ session('theme', 'light') }} container mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4 dark:text-white">Cập nhật Lead</h1>
 
-            <div class="mb-4">
-                <label class="block font-semibold mb-2">Tiêu đề *</label>
-                <input type="text" name="TITLE" value="{{ old('TITLE') }}" class="border p-2 rounded w-full" required>
-            </div>
+    @if($errors->any())
+        <script> toastr.error("{{ $errors->first() }}", "Lỗi"); </script>
+    @endif
 
-            <div class="mb-4">
-                <label class="block font-semibold mb-2">Ghi chú</label>
-                <textarea name="COMMENTS" class="border p-2 rounded w-full">{{ old('COMMENTS') }}</textarea>
-            </div>
+    <form method="POST" action="{{ url('/leads/' . $id) }}" class="space-y-4">
+        @csrf
+        @method('PATCH')
+        <div>
+            <label class="block dark:text-white">Tiêu đề</label>
+            <input type="text" name="TITLE" value="{{ old('TITLE', $lead['TITLE'] ?? '') }}"
+                class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white" required>
+        </div>
+        <div>
+            <label class="block dark:text-white">Email</label>
+            <input type="email" name="EMAIL" value="{{ old('EMAIL', $lead['EMAIL'] ?? '') }}"
+                class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
+        </div>
+        <div>
+            <label class="block dark:text-white">Số điện thoại</label>
+            <input type="text" name="PHONE" value="{{ old('PHONE', $lead['PHONE'] ?? '') }}"
+                class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
+        </div>
+        <div>
+            <label class="block dark:text-white">Trạng thái</label>
+            <select name="STATUS_ID" class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
+                <option value="">Chọn trạng thái</option>
+                @foreach($statuses as $status)
+                    <option value="{{ $status['STATUS_ID'] }}" {{ $lead['STATUS_ID'] == $status['STATUS_ID'] ? 'selected' : '' }}>{{ $status['NAME'] }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label class="block dark:text-white">Nguồn</label>
+            <select name="SOURCE_ID" class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
+                <option value="">Chọn nguồn</option>
+                @foreach($sources as $source)
+                    <option value="{{ $source['STATUS_ID'] }}" {{ $lead['SOURCE_ID'] == $source['STATUS_ID'] ? 'selected' : '' }}>{{ $source['NAME'] }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label class="block dark:text-white">Ghi chú</label>
+            <textarea name="COMMENTS"
+                class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">{{ old('COMMENTS', $lead['COMMENTS'] ?? '') }}</textarea>
+        </div>
+        <button type="submit" class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded dark:bg-yellow-500">
+            Cập nhật Lead
+        </button>
+    </form>
 
-            <button type="submit" class="bg-yellow-600 text-white px-4 py-2 rounded">Cập nhật</button>
-        </form>
-    </div>
-@endsection
+    <script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</body>
+
+</html>

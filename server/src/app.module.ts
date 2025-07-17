@@ -24,6 +24,7 @@ import { WebhookModule } from './webhook/webhook.module';
         },
       }),
     }),
+
     LoggerModule,
     RedisModule,
     AuthModule,

@@ -1,89 +1,148 @@
-@extends('layouts.app')
+<!DOCTYPE html>
+<html>
 
-@section('content')
-    <div class="container mx-auto p-6">
-        <h1 class="text-2xl font-bold mb-4">Danh sách Lead</h1>
+<head>
+    <title>Bitrix24 CRM Automation Suite</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.css" rel="stylesheet">
+</head>
 
-        @if(session('success'))
-            <div class="bg-green-100 text-green-800 p-2 rounded mb-4">
-                {{ session('success') }}
-            </div>
-        @endif
-
-        @if($errors->any())
-            <div class="bg-red-100 text-red-800 p-2 rounded mb-4">
-                {{ $errors->first() }}
-            </div>
-        @endif
-
-        <div class="flex justify-between items-center mb-4">
-            <a href="{{ url('/leads/create') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
-                + Thêm Lead
-            </a>
-            <button onclick="fetchLeads()" class="bg-gray-200 px-3 py-1 rounded text-sm">
-                Tải lại danh sách
-            </button>
-        </div>
-
-        <table class="table-auto w-full border mt-4">
-            <thead>
-                <tr class="bg-gray-200">
-                    <th class="px-4 py-2">ID</th>
-                    <th class="px-4 py-2">Tiêu đề</th>
-                    <th class="px-4 py-2">Trạng thái</th>
-                    <th class="px-4 py-2">Hành động</th>
-                </tr>
-            </thead>
-            <tbody id="lead-table-body">
-                @include('leads.partials.lead-rows', ['leads' => $leads])
-            </tbody>
-        </table>
+<body class="{{ session('theme', 'light') }} container mx-auto p-4">
+    <div class="flex justify-between items-center mb-4">
+        <h1 class="text-2xl font-bold dark:text-white">Danh sách Lead</h1>
+        <button onclick="toggleTheme()" class="bg-gray-500 text-white px-4 py-2 rounded dark:bg-gray-700">
+            Chuyển Theme
+        </button>
     </div>
-@endsection
 
-@push('scripts')
+    @if(session('success'))
+        <script> toastr.success("{{ session('success') }}", "Thành công"); </script>
+    @endif
+    @if($errors->any())
+        <script> toastr.error("{{ $errors->first() }}", "Lỗi"); </script>
+    @endif
+
+    <div class="mb-4">
+        <a href="{{ url('/leads/create') }}"
+            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded dark:bg-blue-500">
+            + Thêm Lead
+        </a>
+    </div>
+
+    <form id="filter-form" method="GET" action="/leads" class="mb-4 flex space-x-2">
+        <input type="text" name="search" placeholder="Tìm kiếm..." value="{{ request('search') }}"
+            class="border p-2 rounded dark:bg-gray-700 dark:text-white">
+        <select name="status" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
+            <option value="">Tất cả trạng thái</option>
+            @foreach($statuses as $status)
+                <option value="{{ $status['STATUS_ID'] }}" {{ request('status') == $status['STATUS_ID'] ? 'selected' : '' }}>
+                    {{ $status['NAME'] }}</option>
+            @endforeach
+        </select>
+        <select name="source" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
+            <option value="">Tất cả nguồn</option>
+            @foreach($sources as $source)
+                <option value="{{ $source['STATUS_ID'] }}" {{ request('source') == $source['STATUS_ID'] ? 'selected' : '' }}>
+                    {{ $source['NAME'] }}</option>
+            @endforeach
+        </select>
+        <button type="submit" class="bg-blue-500 text-white p-2 rounded dark:bg-blue-600">Lọc</button>
+    </form>
+
+    <table id="leads-table" class="w-full border dark:border-gray-600">
+        <thead class="bg-gray-100 dark:bg-gray-700">
+            <tr>
+                <th class="p-2 dark:text-white">ID</th>
+                <th class="p-2 dark:text-white">Tiêu đề</th>
+                <th class="p-2 dark:text-white">Trạng thái</th>
+                <th class="p-2 dark:text-white">Hành động</th>
+            </tr>
+        </thead>
+    </table>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
-        async function fetchLeads() {
-            try {
-                const res = await fetch("/leads/json", {
-                    headers: {
-                        "X-Requested-With": "XMLHttpRequest",
-                        "Accept": "application/json"
-                    }
-                });
-                const data = await res.json();
+        $(document).ready(function () {
+            const table = $('#leads-table').DataTable({
+                ajax: {
+                    url: '/leads/json',
+                    data: function (d) {
+                        d.search = $('input[name="search"]').val();
+                        d.status = $('select[name="status"]').val();
+                        d.source = $('select[name="source"]').val();
+                    },
+                    dataSrc: 'leads',
+                    beforeSend: () => {
+                        Swal.fire({
+                            title: 'Đang tải...',
+                            allowOutsideClick: false,
+                            didOpen: () => Swal.showLoading(),
+                        });
+                    },
+                    complete: () => Swal.close(),
+                    error: (xhr) => {
+                        Swal.close();
+                        if (xhr.status === 401) {
+                            window.location.href = '/login';
+                        } else if (xhr.status === 429) {
+                            toastr.error('Quá nhiều yêu cầu, vui lòng thử lại sau', 'Lỗi');
+                        } else {
+                            toastr.error('Không thể tải dữ liệu', 'Lỗi');
+                        }
+                    },
+                },
+                columns: [
+                    { data: 'ID' },
+                    { data: 'TITLE' },
+                    { data: 'STATUS_ID', defaultContent: 'N/A' },
+                    {
+                        data: null,
+                        render: (data) => `
+                            <a href="/leads/${data.ID}/edit" class="text-blue-500 dark:text-blue-300">Sửa</a>
+                            <form action="/leads/${data.ID}" method="POST" class="inline-block" onsubmit="return confirm('Xác nhận xóa lead này?')">
+                                <input type="hidden" name="_token" value="${document.querySelector('meta[name="csrf-token"]').content}">
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button type="submit" class="text-red-500 dark:text-red-300">Xóa</button>
+                            </form>
+                        `,
+                    },
+                ],
+                responsive: true,
+                language: {
+                    url: '//cdn.datatables.net/plug-ins/1.11.5/i18n/vi.json',
+                },
+            });
 
-                if (!Array.isArray(data.leads)) return;
+            $('#filter-form').on('submit', function (e) {
+                e.preventDefault();
+                table.ajax.reload();
+            });
+        });
 
-                const tbody = document.getElementById("lead-table-body");
-                tbody.innerHTML = "";
-
-                data.leads.forEach(lead => {
-                    const row = document.createElement("tr");
-                    row.classList.add("border-t");
-
-                    row.innerHTML = `
-                            <td class="px-4 py-2">${lead.ID}</td>
-                            <td class="px-4 py-2">${lead.TITLE}</td>
-                            <td class="px-4 py-2">${lead.STATUS_ID || 'N/A'}</td>
-                            <td class="px-4 py-2">
-                                <a href="/leads/${lead.ID}/edit" class="text-blue-500 mr-3">Sửa</a>
-                                <form action="/leads/${lead.ID}" method="POST" class="inline-block" onsubmit="return confirm('Xác nhận xóa lead này?')">
-                                    <input type="hidden" name="_token" value="{{ csrf_token() }}">
-                                    <input type="hidden" name="_method" value="DELETE">
-                                    <button type="submit" class="text-red-500">Xóa</button>
-                                </form>
-                            </td>
-                        `;
-
-                    tbody.appendChild(row);
-                });
-            } catch (err) {
-                console.error("Lỗi lấy dữ liệu:", err);
-            }
+        function toggleTheme() {
+            const current = document.body.classList.contains('dark') ? 'dark' : 'light';
+            const newTheme = current === 'dark' ? 'light' : 'dark';
+            document.body.classList.toggle('dark');
+            localStorage.setItem('theme', newTheme);
+            fetch('/set-theme', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ theme: newTheme }),
+            });
         }
 
-        // Poll every 10 seconds
-        setInterval(fetchLeads, 10000);
+        if (localStorage.getItem('theme') === 'dark') {
+            document.body.classList.add('dark');
+        }
     </script>
-@endpush
+</body>
+
+</html>

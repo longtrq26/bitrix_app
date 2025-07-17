@@ -4,21 +4,21 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Length,
 } from 'class-validator';
 
 export class CreateLeadDto {
   @IsString()
   @IsNotEmpty()
+  @Length(1, 100)
   TITLE: string;
 
   @IsOptional()
   @IsEmail()
-  @IsNotEmpty()
   EMAIL?: string;
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   PHONE?: string;
 
   @IsOptional()
@@ -31,6 +31,7 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
+  @Length(0, 1000)
   COMMENTS?: string;
 
   @IsString()

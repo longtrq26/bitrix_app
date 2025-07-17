@@ -14,10 +14,10 @@ import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
+import { MemberId } from 'src/common/decorators/member-id.decorator';
 import { Logger } from 'winston';
 import { AuthService } from './auth.service';
 import { AuthDomainDto } from './dto/auth-domain.dto';
-import { MemberId } from 'src/common/decorators/member-id.decorator';
 
 @ApiTags('auth')
 @Controller('api/auth')

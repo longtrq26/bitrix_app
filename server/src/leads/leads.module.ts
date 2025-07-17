@@ -5,9 +5,23 @@ import { AuthService } from 'src/auth/auth.service';
 import { RedisService } from 'src/redis/redis.service';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
+import { RabbitMQModule } from '@golevelup/nestjs-rabbitmq';
 
 @Module({
-  imports: [HttpModule, AuthModule],
+  imports: [
+    HttpModule,
+    AuthModule,
+    RabbitMQModule.forRoot({
+      uri: process.env.RABBITMQ_URI || 'amqp://guest:guest@localhost:5672',
+      exchanges: [
+        {
+          name: 'bitrix_exchange',
+          type: 'topic',
+        },
+      ],
+      connectionInitOptions: { wait: true },
+    }),
+  ],
   controllers: [LeadsController],
   providers: [LeadsService, RedisService, AuthService],
 })
