@@ -18,7 +18,7 @@ class LeadController extends Controller
             return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
         }
 
-        $queryParams = $request->only(['search', 'status', 'source', 'date', 'sort']);
+        $queryParams = $request->only(['find', 'status', 'source', 'date', 'sort']);
         $queryParams['domain'] = $domain;
 
         try {
@@ -257,7 +257,7 @@ class LeadController extends Controller
             return response()->json(['error' => 'Phiên đăng nhập không hợp lệ'], 401);
         }
 
-        $queryParams = $request->only(['search', 'status', 'source', 'date', 'sort']);
+        $queryParams = $request->only(['find', 'status', 'source', 'date', 'sort']);
         $queryParams['domain'] = $domain;
 
         try {

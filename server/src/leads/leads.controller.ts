@@ -32,9 +32,9 @@ export class LeadsController {
   @Get()
   @ApiOperation({ summary: 'Get list of leads with filtering and sorting' })
   @ApiQuery({
-    name: 'search',
+    name: 'find',
     required: false,
-    description: 'Search by TITLE, NAME, EMAIL, PHONE',
+    description: 'Find by TITLE, NAME, EMAIL, PHONE',
   })
   @ApiQuery({
     name: 'status',

@@ -3,7 +3,7 @@ import { IsOptional, IsString } from 'class-validator';
 export class QueryLeadDto {
   @IsOptional()
   @IsString()
-  search?: string;
+  find?: string;
 
   @IsOptional()
   @IsString()
