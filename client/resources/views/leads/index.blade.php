@@ -32,21 +32,30 @@
     </div>
 
     <form id="filter-form" method="GET" action="/leads" class="mb-4 flex space-x-2">
-        <input type="text" name="search" placeholder="Tìm kiếm..." value="{{ request('search') }}"
+        <input type="text" name="find" placeholder="Tìm kiếm..." value="{{ request('find') }}"
             class="border p-2 rounded dark:bg-gray-700 dark:text-white">
         <select name="status" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
             <option value="">Tất cả trạng thái</option>
             @foreach($statuses as $status)
                 <option value="{{ $status['STATUS_ID'] }}" {{ request('status') == $status['STATUS_ID'] ? 'selected' : '' }}>
-                    {{ $status['NAME'] }}</option>
+                    {{ $status['NAME'] }}
+                </option>
             @endforeach
         </select>
         <select name="source" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
             <option value="">Tất cả nguồn</option>
             @foreach($sources as $source)
                 <option value="{{ $source['STATUS_ID'] }}" {{ request('source') == $source['STATUS_ID'] ? 'selected' : '' }}>
-                    {{ $source['NAME'] }}</option>
+                    {{ $source['NAME'] }}
+                </option>
             @endforeach
+        </select>
+        <input type="date" name="date" value="{{ request('date') }}"
+            class="border p-2 rounded dark:bg-gray-700 dark:text-white">
+        <select name="sort" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
+            <option value="">Sắp xếp mặc định</option>
+            <option value="DATE_CREATE" {{ request('sort') == 'DATE_CREATE' ? 'selected' : '' }}>Ngày tạo</option>
+            <option value="TITLE" {{ request('sort') == 'TITLE' ? 'selected' : '' }}>Tiêu đề</option>
         </select>
         <button type="submit" class="bg-blue-500 text-white p-2 rounded dark:bg-blue-600">Lọc</button>
     </form>
@@ -72,9 +81,11 @@
                 ajax: {
                     url: '/leads/json',
                     data: function (d) {
-                        d.search = $('input[name="search"]').val();
+                        d.find = $('input[name="find"]').val();
                         d.status = $('select[name="status"]').val();
                         d.source = $('select[name="source"]').val();
+                        d.date = $('input[name="date"]').val();
+                        d.sort = $('select[name="sort"]').val();
                     },
                     dataSrc: 'leads',
                     beforeSend: () => {
