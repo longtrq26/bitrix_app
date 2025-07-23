@@ -15,11 +15,11 @@ export class QueryLeadDto {
 
   @IsOptional()
   @IsString()
-  sort?: string;
+  date?: string;
 
   @IsOptional()
   @IsString()
-  date?: string;
+  sort?: string;
 
   @IsOptional()
   @IsString()

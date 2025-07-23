@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Session;
+use Log;
 
 class AuthController extends Controller
 {
@@ -20,45 +21,58 @@ class AuthController extends Controller
         ]);
 
         $domain = $request->input('domain');
+        Session::put('domain', $domain);
 
-        $response = Http::withOptions(['verify' => false, 'allow_redirects' => false])
-            ->get(env('BASE_API_URL') . '/auth/redirect', [
-                'domain' => $domain
-            ]);
+        try {
+            $response = Http::withOptions(['verify' => false, 'allow_redirects' => false])
+                ->get(env('BASE_API_URL') . 'auth/redirect', [
+                    'domain' => $domain,
+                ]);
 
-        if ($response->status() === 302 && $response->header('Location')) {
-            return redirect()->away($response->header('Location'));
+            if ($response->status() === 302 && $response->header('Location')) {
+                return redirect()->away($response->header('Location'));
+            }
+
+            Log::error('Failed to redirect to Bitrix24', ['response' => $response->json()]);
+            return redirect('/login')->withErrors(['msg' => 'Không thể redirect tới Bitrix24']);
+        } catch (\Exception $e) {
+            Log::error('Error redirecting to Bitrix24', ['error' => $e->getMessage()]);
+            return redirect('/login')->withErrors(['msg' => 'An error occurred during authentication']);
         }
-
-        return redirect('/login')->withErrors(['msg' => 'Không thể redirect tới Bitrix24']);
     }
 
     public function handleCallback(Request $request)
     {
         $sessionToken = $request->query('session');
-
-        $response = Http::withOptions(['verify' => false])
-            ->get(env('BASE_API_URL') . '/auth/member', [
-                'session' => $sessionToken
-            ]);
-
-        if ($response->failed()) {
+        if (!$sessionToken) {
+            Log::error('Missing session token in callback');
             return redirect('/login')->withErrors(['msg' => 'Session token không hợp lệ']);
         }
 
-        Session::put('session_token', $sessionToken);
-        Session::put('member_id', $response->json('memberId'));
+        try {
+            $response = Http::withOptions(['verify' => false])
+                ->get(env('BASE_API_URL') . 'auth/member', [
+                    'session' => $sessionToken,
+                ]);
 
-        // Gọi thêm domain
-        $domainRes = Http::withOptions(['verify' => false])
-            ->get(env('BASE_API_URL') . '/auth/domain', [
-                'memberId' => $response->json('memberId')
-            ]);
+            if ($response->failed()) {
+                Log::error('Failed to fetch member data', ['response' => $response->json()]);
+                return redirect('/login')->withErrors(['msg' => 'Session token không hợp lệ']);
+            }
 
-        if ($domainRes->ok()) {
-            Session::put('domain', $domainRes->body());
+            $memberId = $response->json('memberId');
+            if (!$memberId) {
+                Log::error('Missing memberId in auth response');
+                return redirect('/login')->withErrors(['msg' => 'Không thể lấy member ID']);
+            }
+
+            Session::put('session_token', $sessionToken);
+            Session::put('member_id', $memberId);
+
+            return redirect('/leads');
+        } catch (\Exception $e) {
+            Log::error('Error handling OAuth callback', ['error' => $e->getMessage()]);
+            return redirect('/login')->withErrors(['msg' => 'An error occurred during authentication']);
         }
-
-        return redirect('/leads');
     }
 }

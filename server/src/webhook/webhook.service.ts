@@ -1,10 +1,7 @@
-import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { Queue } from 'bull';
-import { firstValueFrom } from 'rxjs';
-import { AuthService } from 'src/auth/auth.service';
-import { WebhookDto } from './dto/webhook.dto';
+import { RedisService } from 'src/redis/redis.service';
 
 @Injectable()
 export class WebhookService {
@@ -12,67 +9,25 @@ export class WebhookService {
 
   constructor(
     @InjectQueue('webhook') private readonly webhookQueue: Queue,
-    private readonly authService: AuthService,
-    private readonly httpService: HttpService,
+    private readonly redisService: RedisService,
   ) {}
 
-  async handleLeadWebhook(payload: WebhookDto, token: string) {
-    if (!this.validateToken(token)) {
-      this.logger.warn('Invalid webhook token');
-      throw new UnauthorizedException('Invalid webhook token');
-    }
-
-    const { event, data, memberId } = payload;
-    const leadData = data.FIELDS;
-
-    if (event === 'ONCRMLEADADD') {
-      await this.webhookQueue.add('createTask', {
-        lead: leadData,
-        memberId: memberId,
+  async processWebhook(event: string, data: any) {
+    try {
+      this.logger.log(
+        `Webhook queued for processing: ${event}, memberId: ${data.memberId}`,
+      );
+      await this.webhookQueue.add('handle-lead-webhook', {
+        event,
+        data,
+        memberId: data.memberId,
       });
+    } catch (error) {
+      this.logger.error(
+        `Failed to queue webhook: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     }
-
-    if (event === 'ONCRMLEADUPDATE' && leadData.STATUS_ID === 'CONVERTED') {
-      await this.webhookQueue.add('createDeal', {
-        lead: leadData,
-        memberId: memberId,
-      });
-    }
-
-    return { status: 'accepted' };
-  }
-
-  validateToken(token: string): boolean {
-    return token === process.env.WEBHOOK_SECRET;
-  }
-
-  async getTasksForLead(leadId: string, memberId: string) {
-    const token = await this.authService.getAccessToken(memberId);
-    const domain = await this.authService.getDomain(memberId);
-
-    const { data } = await firstValueFrom(
-      this.httpService.post(
-        `https://${domain}/rest/tasks.task.list`,
-        { filter: { UF_CRM_TASK: [`L_${leadId}`] } },
-        { headers: { Authorization: `Bearer ${token}` } },
-      ),
-    );
-
-    return data.result.tasks;
-  }
-
-  async getDealsForLead(leadId: string, memberId: string) {
-    const token = await this.authService.getAccessToken(memberId);
-    const domain = await this.authService.getDomain(memberId);
-
-    const { data } = await firstValueFrom(
-      this.httpService.post(
-        `https://${domain}/rest/crm.deal.list`,
-        { filter: { LEAD_ID: leadId } },
-        { headers: { Authorization: `Bearer ${token}` } },
-      ),
-    );
-
-    return data.result;
   }
 }

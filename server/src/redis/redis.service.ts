@@ -1,60 +1,48 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 
 @Injectable()
-export class RedisService implements OnModuleInit {
-  private client: Redis;
+export class RedisService {
+  private readonly logger = new Logger(RedisService.name);
 
-  constructor(private readonly configService: ConfigService) {}
-
-  async onModuleInit() {
-    const host = this.configService.get<string>('REDIS_HOST');
-    const port = this.configService.get<string>('REDIS_PORT');
-    const password = this.configService.get<string>('REDIS_PASSWORD');
-
-    if (!host) {
-      throw new Error(
-        'REDIS_HOST environment variable is not set. Please check your .env file and ConfigModule setup.',
-      );
-    }
-    if (!port) {
-      throw new Error(
-        'REDIS_PORT environment variable is not set. Please check your .env file and ConfigModule setup.',
-      );
-    }
-
-    const parsedPort = parseInt(port, 10);
-
-    if (isNaN(parsedPort) || parsedPort < 0 || parsedPort > 65535) {
-      throw new Error(
-        `Invalid REDIS_PORT value: "${port}". Port must be a number between 0 and 65535. Check your .env file.`,
-      );
-    }
-
-    this.client = new Redis({
-      host: host,
-      port: parsedPort,
-      password: password,
-    });
-  }
+  constructor(@Inject('REDIS_CLIENT') private readonly redisClient: Redis) {}
 
   async get(key: string): Promise<string | null> {
-    return await this.client.get(key);
+    try {
+      return await this.redisClient.get(key);
+    } catch (error) {
+      this.logger.error(`Failed to get key ${key}: ${error.message}`);
+      return null;
+    }
   }
 
   async set(key: string, value: string, ttl: number): Promise<void> {
-    await this.client.set(key, value, 'EX', ttl);
+    try {
+      await this.redisClient.set(key, value, 'EX', ttl);
+    } catch (error) {
+      this.logger.error(`Failed to set key ${key}: ${error.message}`);
+    }
   }
 
   async del(key: string): Promise<void> {
-    await this.client.del(key);
+    try {
+      await this.redisClient.del(key);
+    } catch (error) {
+      this.logger.error(`Failed to delete key ${key}: ${error.message}`);
+    }
   }
 
-  async deleteByPrefix(prefix: string): Promise<void> {
-    const keys = await this.client.keys(`${prefix}*`);
-    if (keys.length > 0) {
-      await this.client.del(...keys);
+  async delByPrefix(prefix: string): Promise<void> {
+    try {
+      const keys = await this.redisClient.keys(`${prefix}:*`);
+      if (keys.length > 0) {
+        await this.redisClient.del(...keys);
+        this.logger.log(`Deleted ${keys.length} keys with prefix ${prefix}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete keys with prefix ${prefix}: ${error.message}`,
+      );
     }
   }
 }

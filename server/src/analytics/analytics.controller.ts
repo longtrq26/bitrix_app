@@ -1,5 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import Bottleneck from 'bottleneck';
 import { AnalyticsService } from './analytics.service';
+
+const limiter = new Bottleneck({ minTime: 500 });
 
 @Controller('api/analytics')
 export class AnalyticsController {
@@ -7,16 +10,22 @@ export class AnalyticsController {
 
   @Get('leads')
   async getLeadAnalytics(@Query('memberId') memberId: string) {
-    return this.analyticsService.getLeadStats(memberId);
+    return limiter.schedule(() =>
+      this.analyticsService.getLeadAnalytics(memberId),
+    );
   }
 
   @Get('deals')
   async getDealAnalytics(@Query('memberId') memberId: string) {
-    return this.analyticsService.getDealStats(memberId);
+    return limiter.schedule(() =>
+      this.analyticsService.getLeadAnalytics(memberId),
+    );
   }
 
-  @Get('task')
+  @Get('tasks')
   async getTaskAnalytics(@Query('memberId') memberId: string) {
-    return this.analyticsService.getTaskStats(memberId);
+    return limiter.schedule(() =>
+      this.analyticsService.getTaskAnalytics(memberId),
+    );
   }
 }

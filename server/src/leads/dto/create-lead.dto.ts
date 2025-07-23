@@ -14,6 +14,10 @@ export class CreateLeadDto {
   TITLE: string;
 
   @IsOptional()
+  @IsString()
+  NAME?: string;
+
+  @IsOptional()
   @IsEmail()
   EMAIL?: string;
 
@@ -37,8 +41,4 @@ export class CreateLeadDto {
   @IsString()
   @IsNotEmpty()
   domain: string;
-
-  @IsOptional()
-  @IsObject()
-  customFields?: Record<string, any>;
 }

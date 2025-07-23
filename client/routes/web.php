@@ -2,7 +2,8 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LeadController;
-use App\Http\Controllers\ThemeController;
+use App\Http\Controllers\AnalyticsController;
+
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -14,26 +15,12 @@ Route::get('/connect', [AuthController::class, 'redirectToBitrix']);
 Route::get('/auth/callback', [AuthController::class, 'handleCallback']);
 
 Route::middleware('web')->group(function () {
-    Route::get('/leads', [LeadController::class, 'index']);
-    Route::get('/leads/create', [LeadController::class, 'create']);
-    Route::post('/leads', [LeadController::class, 'store']);
-    Route::get('/leads/{id}/edit', [LeadController::class, 'edit']);
-    Route::patch('/leads/{id}', [LeadController::class, 'update']);
-    Route::delete('/leads/{id}', [LeadController::class, 'destroy']);
-    Route::get('/leads/json', [LeadController::class, 'json']);
-    Route::post('/set-theme', [LeadController::class, 'setTheme']);
+    Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
+    Route::get('/leads/{id}', [LeadController::class, 'show'])->name('leads.show');
+    Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');
+    Route::patch('/leads/{id}', [LeadController::class, 'update'])->name('leads.update');
+    Route::delete('/leads/{id}', [LeadController::class, 'destroy'])->name('leads.destroy');
+    Route::get('/leads/webhook/logs', [LeadController::class, 'webhookLogs'])->name('leads.webhook_logs');
 });
-Route::get('/login', [AuthController::class, 'showLoginForm']);
-Route::get('/connect', [AuthController::class, 'redirectToBitrix']);
-Route::get('/auth/callback', [AuthController::class, 'handleCallback']);
 
-Route::middleware('web')->group(function () {
-    Route::get('/leads', [LeadController::class, 'index']);
-    Route::get('/leads/create', [LeadController::class, 'create']);
-    Route::post('/leads', [LeadController::class, 'store']);
-    Route::get('/leads/{id}/edit', [LeadController::class, 'edit']);
-    Route::patch('/leads/{id}', [LeadController::class, 'update']);
-    Route::delete('/leads/{id}', [LeadController::class, 'destroy']);
-    Route::get('/leads/json', [LeadController::class, 'json']);
-    Route::post('/set-theme', [LeadController::class, 'setTheme']);
-});
+Route::middleware("web")->get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');

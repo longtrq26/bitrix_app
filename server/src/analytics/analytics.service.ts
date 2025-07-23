@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from 'src/auth/auth.service';
 import { RedisService } from 'src/redis/redis.service';
@@ -10,66 +10,60 @@ export class AnalyticsService {
 
   constructor(
     private readonly httpService: HttpService,
-    private readonly redisService: RedisService,
     private readonly authService: AuthService,
+    private readonly redisService: RedisService,
   ) {}
 
-  async getLeadStats(memberId: string) {
-    const cacheKey = 'analytics:leads';
-    const cached = await this.redisService.get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached);
-    }
-
+  async getLeadAnalytics(memberId: string) {
     const token = await this.authService.getAccessToken(memberId);
     const domain = await this.authService.getDomain(memberId);
+    this.logger.debug(`Domain: ${domain}, Token: ${token}`);
 
-    const batchUrl = `https://${domain}/rest/batch`;
-    const batchBody = {
-      halt: 0,
-      cmd: {
-        leads: 'crm.lead.list',
-        deals: 'crm.deal.list',
-      },
-    };
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `https://${domain}/rest/batch`,
+          {
+            halt: 0,
+            cmd: {
+              leads: 'crm.lead.list',
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      );
+      this.logger.debug(
+        `Lead analytics response: ${JSON.stringify(response.data)}`,
+      );
 
-    const { data } = await firstValueFrom(
-      this.httpService.post(batchUrl, batchBody, {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-    );
+      const leads = response.data.result.leads || [];
+      const stats = {
+        NEW: leads.filter((l) => l.STATUS_ID === 'NEW').length,
+        IN_PROGRESS: leads.filter((l) => l.STATUS_ID === 'IN_PROGRESS').length,
+        CONVERTED: leads.filter((l) => l.STATUS_ID === 'CONVERTED').length,
+        LOST: leads.filter((l) => l.STATUS_ID === 'LOST').length,
+      };
 
-    const leads = data.result.result.leads;
-    const deals = data.result.result.deals;
-
-    const leadByStatus = leads.reduce(
-      (acc, lead) => {
-        acc[lead.STATUS_ID] = (acc[lead.STATUS_ID] || 0) + 1;
-
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-
-    const convertedLeads = deals
-      .filter((deal) => deal.LEAD_ID)
-      .map((deal) => deal.DEAL_ID);
-    const conversionRate =
-      leads.length === 0 ? 0 : convertedLeads.length / leads.length;
-
-    const result = {
-      leadByStatus,
-      totalLeads: leads.length,
-      convertedLeads: convertedLeads.length,
-      conversionRate: parseFloat(conversionRate.toFixed(2)),
-    };
-
-    await this.redisService.set(cacheKey, JSON.stringify(result), 900);
-
-    return result;
+      await this.redisService.set(
+        'analytics:leads',
+        JSON.stringify(stats),
+        900,
+      );
+      return stats;
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch lead analytics: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        error.response?.data?.error_description ||
+          'Failed to fetch lead analytics',
+        error.response?.status || 500,
+      );
+    }
   }
 
-  async getDealStats(memberId: string) {
+  async getDealAnalytics(memberId: string) {
     const cacheKey = 'analytics:deals';
     const cached = await this.redisService.get(cacheKey);
 
@@ -80,80 +74,110 @@ export class AnalyticsService {
     const token = await this.authService.getAccessToken(memberId);
     const domain = await this.authService.getDomain(memberId);
 
-    const { data } = await firstValueFrom(
-      this.httpService.post(
-        `https://${domain}/rest/crm.deal.list`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } },
-      ),
-    );
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `https://${domain}/rest/batch`,
+          {
+            halt: 0,
+            cmd: {
+              deals: 'crm.deal.list',
+              leads: 'crm.lead.list?filter[STATUS_ID]=CONVERTED',
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      );
 
-    const deals = data.result;
-    const totalRevenue = deals.reduce(
-      (sum, deal) => sum + Number(deal.OPPORTUNITY || 0),
-      0,
-    );
+      const deals = response.data.result.deals;
+      const convertedLeads = response.data.result.leads.length;
+      const totalLeads =
+        (await this.getLeadAnalytics(memberId)).NEW +
+        (await this.getLeadAnalytics(memberId)).IN_PROGRESS +
+        (await this.getLeadAnalytics(memberId)).CONVERTED +
+        (await this.getLeadAnalytics(memberId)).LOST;
+      const conversionRate = convertedLeads / totalLeads;
+      const revenue = deals.reduce(
+        (sum, deal) => sum + (deal.OPPORTUNITY || 0),
+        0,
+      );
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        return date.toISOString().split('T')[0];
+      }).reverse();
+      const revenueByDay = last7Days.map((date) => ({
+        date,
+        revenue: deals
+          .filter((d) => d.DATE_CREATE.split('T')[0] === date)
+          .reduce((sum, d) => sum + (d.OPPORTUNITY || 0), 0),
+      }));
+      const stats = { conversionRate, revenue, revenueByDay };
 
-    const today = new Date();
-    const revenueByDate: Record<string, number> = {};
+      await this.redisService.set(cacheKey, JSON.stringify(stats), 900);
 
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const key = date.toISOString().split('T')[0];
-      revenueByDate[key] = 0;
+      return stats;
+    } catch (error) {
+      throw new HttpException(
+        'Failed to fetch deal analytics',
+        error.response?.status || 500,
+      );
     }
-
-    for (const deal of deals) {
-      const date = new Date(deal.DATE_CREATE).toISOString().split('T')[0];
-      if (revenueByDate[date] !== undefined) {
-        revenueByDate[date] += Number(deal.OPPORTUNITY || 0);
-      }
-    }
-
-    const result = { totalRevenue, revenueByDate };
-
-    await this.redisService.set(cacheKey, JSON.stringify(result), 900);
-
-    return result;
   }
 
-  async getTaskStats(memberId: string) {
+  async getTaskAnalytics(memberId: string) {
     const cacheKey = 'analytics:tasks';
     const cached = await this.redisService.get(cacheKey);
-
     if (cached) {
-      return JSON.parse(cached);
+      try {
+        return JSON.parse(cached);
+      } catch (error) {
+        this.logger.error(
+          `Failed to parse cached task analytics: ${error.message}`,
+        );
+      }
     }
 
     const token = await this.authService.getAccessToken(memberId);
     const domain = await this.authService.getDomain(memberId);
+    this.logger.debug(`Domain: ${domain}, Token: ${token}`);
 
-    const { data } = await firstValueFrom(
-      this.httpService.post(
-        `https://${domain}/rest/tasks.task.list`,
-        { filter: { STATUS: '5' } }, // STATUS 5 = completed
-        { headers: { Authorization: `Bearer ${token}` } },
-      ),
-    );
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `https://${domain}/rest/batch`,
+          {
+            halt: 0,
+            cmd: {
+              tasks: 'tasks.task.list',
+            },
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        ),
+      );
+      this.logger.debug(
+        `Task analytics response: ${JSON.stringify(response.data)}`,
+      );
 
-    const tasks = data.result.tasks;
-
-    const taskCountByUser = tasks.reduce(
-      (acc, task) => {
-        const userId = task.RESPONSIBLE_ID;
-        if (userId && userId !== 'null' && userId !== 'undefined') {
-          acc[userId] = (acc[userId] || 0) + 1;
-        }
+      const tasks = response.data.result.tasks || [];
+      const stats = tasks.reduce((acc, task) => {
+        acc[task.RESPONSIBLE_ID] =
+          (acc[task.RESPONSIBLE_ID] || 0) + (task.STATUS === '5' ? 1 : 0);
         return acc;
-      },
-      {} as Record<string, number>,
-    );
+      }, {});
 
-    const result = { completedTasks: tasks.length, taskCountByUser };
-
-    await this.redisService.set(cacheKey, JSON.stringify(result), 900);
-
-    return result;
+      await this.redisService.set(cacheKey, JSON.stringify(stats), 900);
+      return stats;
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch task analytics: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        error.response?.data?.error_description ||
+          'Failed to fetch task analytics',
+        error.response?.status || 500,
+      );
+    }
   }
 }

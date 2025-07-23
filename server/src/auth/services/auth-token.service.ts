@@ -19,13 +19,18 @@ export class AuthTokenService {
     tokenData: any,
     ttl: number,
   ): Promise<void> {
-    // Encrypted token data trước khi lưu
-    const encrypted = this.cryptoService.encrypt(tokenData);
+    try {
+      const encrypted = this.cryptoService.encrypt(tokenData);
+      if (!encrypted) {
+        this.logger.error(`Encryption failed for memberId=${memberId}`);
+        return;
+      }
 
-    // Lưu data đã encrypted vào Redis với key được tạo từ memberId và thời gian sống
-    await this.redisService.set(RedisKeys.token(memberId), encrypted, ttl);
-
-    this.logger.info(`Token saved for member_id: ${memberId}`);
+      await this.redisService.set(RedisKeys.token(memberId), encrypted, ttl);
+      this.logger.info(`Token saved for member_id: ${memberId}`);
+    } catch (error) {
+      this.logger.error(`Failed to save token for ${memberId}`, error);
+    }
   }
 
   // Lấy token data từ Redis và decrypt

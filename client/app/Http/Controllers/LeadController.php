@@ -2,12 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Log;
 
 class LeadController extends Controller
 {
+    protected $client;
+
+    public function __construct()
+    {
+        $this->client = new Client(['base_uri' => env('BASE_API_URL')]);
+    }
+
     public function index(Request $request)
     {
         $domain = Session::get('domain');
@@ -15,73 +24,132 @@ class LeadController extends Controller
         $memberId = Session::get('member_id');
 
         if (!$domain || !$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
+            Log::error('Authentication required: Missing domain, session_token, or member_id');
+            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
         }
 
-        $queryParams = $request->only(['find', 'status', 'source', 'date', 'sort']);
-        $queryParams['domain'] = $domain;
-
+        $query = array_merge($request->only(['find', 'status', 'source', 'date', 'sort']), ['domain' => $domain]);
         try {
+            // Fetch leads
             $response = Http::withHeaders([
                 'X-Session-Token' => $sessionToken,
                 'X-Member-Id' => $memberId,
             ])
                 ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . '/leads', $queryParams);
+                ->get(env('BASE_API_URL') . 'leads', $query);
 
-            if ($response->status() === 401) {
-                Session::flush();
-                return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập hết hạn']);
-            } elseif ($response->status() === 429) {
-                return back()->withErrors(['msg' => 'Quá nhiều yêu cầu, vui lòng thử lại sau']);
+            if ($response->failed()) {
+                Log::error('Failed to fetch leads', [
+                    'response' => $response->json(),
+                    'status' => $response->status(),
+                ]);
+                return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to fetch leads']);
             }
 
-            $data = $response->json();
-            if (!isset($data['leads'])) {
-                return back()->withErrors(['msg' => 'Không lấy được dữ liệu từ API']);
-            }
+            $payload = $response->json() ?? [];
+            $leads = $payload['leads'] ?? [];
+            $fields = $payload['fields'] ?? [];
+            $statuses = $payload['statuses'] ?? [];
+            $sources = $payload['sources'] ?? [];
 
-            return view('leads.index', [
-                'leads' => $data['leads'] ?? [],
-                'fields' => $data['fields'] ?? [],
-                'statuses' => $data['statuses'] ?? [],
-                'sources' => $data['sources'] ?? [],
-                'queryParams' => $queryParams,
+            // Check for recent webhook events
+            $recentWebhooks = $this->checkRecentWebhooks($sessionToken, $memberId);
+
+            Log::info('Fetched leads', [
+                'lead_count' => count($leads),
+                'statuses_count' => count($statuses),
+                'sources_count' => count($sources),
+                'recent_webhooks' => $recentWebhooks,
             ]);
+
+            return view('leads.index', compact('leads', 'fields', 'statuses', 'sources', 'recentWebhooks'));
         } catch (\Exception $e) {
-            return back()->withErrors(['msg' => 'Lỗi hệ thống: ' . $e->getMessage()]);
+            Log::error('Error fetching leads', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->withErrors(['error' => 'An error occurred while fetching leads: ' . $e->getMessage()]);
         }
     }
 
-    public function create()
+    public function show($id)
     {
         $domain = Session::get('domain');
         $sessionToken = Session::get('session_token');
         $memberId = Session::get('member_id');
 
         if (!$domain || !$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
+            Log::error('Authentication required for show lead', ['id' => $id]);
+            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
         }
 
         try {
-            $response = Http::withHeaders([
+            // Fetch lead details
+            $leadResponse = Http::withHeaders([
                 'X-Session-Token' => $sessionToken,
                 'X-Member-Id' => $memberId,
             ])
                 ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . '/leads', ['domain' => $domain]);
+                ->get(env('BASE_API_URL') . "leads/{$id}");
 
-            if ($response->failed()) {
-                return redirect('/login')->withErrors(['msg' => 'Không thể lấy danh sách trạng thái/nguồn']);
+            if ($leadResponse->failed()) {
+                Log::error('Failed to fetch lead details', [
+                    'id' => $id,
+                    'response' => $leadResponse->json(),
+                    'status' => $leadResponse->status(),
+                ]);
+                return back()->withErrors(['error' => $leadResponse->json()['message'] ?? 'Failed to fetch lead details']);
             }
 
-            $data = $response->json();
-            return view('leads.create', [
-                'statuses' => $data['statuses'] ?? [],
-                'sources' => $data['sources'] ?? [],
+            // Fetch tasks
+            $tasksResponse = Http::withHeaders([
+                'X-Session-Token' => $sessionToken,
+                'X-Member-Id' => $memberId,
+            ])
+                ->withOptions(['verify' => false])
+                ->get(env('BASE_API_URL') . "leads/{$id}/tasks");
+
+            // Fetch deals
+            $dealsResponse = Http::withHeaders([
+                'X-Session-Token' => $sessionToken,
+                'X-Member-Id' => $memberId,
+            ])
+                ->withOptions(['verify' => false])
+                ->get(env('BASE_API_URL') . "leads/{$id}/deals");
+
+            // Fetch statuses and sources for dropdowns
+            $listResponse = Http::withHeaders([
+                'X-Session-Token' => $sessionToken,
+                'X-Member-Id' => $memberId,
+            ])
+                ->withOptions(['verify' => false])
+                ->get(env('BASE_API_URL') . 'leads', ['domain' => $domain]);
+
+            if ($listResponse->failed()) {
+                Log::error('Failed to fetch statuses and sources', [
+                    'response' => $listResponse->json(),
+                    'status' => $listResponse->status(),
+                ]);
+            }
+
+            $lead = $leadResponse->json() ?? [];
+            $tasks = $tasksResponse->json() ?? [];
+            $deals = $dealsResponse->json() ?? [];
+            $statuses = $listResponse->json()['statuses'] ?? [];
+            $sources = $listResponse->json()['sources'] ?? [];
+
+            // Check for recent webhook events for this lead
+            $recentWebhooks = $this->checkRecentWebhooks($sessionToken, $memberId, $id);
+
+            Log::info('Fetched lead details', [
+                'id' => $id,
+                'lead' => $lead,
+                'task_count' => count($tasks),
+                'deal_count' => count($deals),
+                'recent_webhooks' => $recentWebhooks,
             ]);
+
+            return view('leads.show', compact('lead', 'tasks', 'deals', 'id', 'statuses', 'sources', 'recentWebhooks'));
         } catch (\Exception $e) {
-            return back()->withErrors(['msg' => 'Lỗi hệ thống: ' . $e->getMessage()]);
+            Log::error('Error fetching lead details', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->withErrors(['error' => 'An error occurred while fetching lead details: ' . $e->getMessage()]);
         }
     }
 
@@ -92,11 +160,13 @@ class LeadController extends Controller
         $memberId = Session::get('member_id');
 
         if (!$domain || !$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
+            Log::error('Authentication required for store lead');
+            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
         }
 
-        $validated = $request->validate([
+        $request->validate([
             'TITLE' => 'required|string|max:100',
+            'NAME' => 'nullable|string',
             'EMAIL' => 'nullable|email',
             'PHONE' => 'nullable|string',
             'STATUS_ID' => 'nullable|string',
@@ -104,69 +174,24 @@ class LeadController extends Controller
             'COMMENTS' => 'nullable|string|max:1000',
         ]);
 
-        $validated['domain'] = $domain;
-
         try {
             $response = Http::withHeaders([
                 'X-Session-Token' => $sessionToken,
                 'X-Member-Id' => $memberId,
             ])
                 ->withOptions(['verify' => false])
-                ->post(env('BASE_API_URL') . '/leads', $validated);
+                ->post(env('BASE_API_URL') . 'leads', array_merge($request->all(), ['domain' => $domain]));
 
-            if ($response->failed()) {
-                if ($response->status() === 401) {
-                    Session::flush();
-                    return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập hết hạn']);
-                } elseif ($response->status() === 429) {
-                    return back()->withErrors(['msg' => 'Quá nhiều yêu cầu, vui lòng thử lại sau']);
-                }
-                return back()->withErrors(['msg' => 'Tạo lead thất bại: ' . ($response->json()['error_description'] ?? 'Lỗi không xác định')]);
+            if ($response->successful()) {
+                Log::info('Lead created successfully', ['response' => $response->json()]);
+                return redirect()->route('leads.index')->with('success', 'Lead created successfully');
             }
 
-            return redirect('/leads')->with('success', 'Tạo lead thành công');
+            Log::error('Failed to create lead', ['response' => $response->json()]);
+            return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to create lead']);
         } catch (\Exception $e) {
-            return back()->withErrors(['msg' => 'Lỗi hệ thống: ' . $e->getMessage()]);
-        }
-    }
-
-    public function edit($id)
-    {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
-        }
-
-        try {
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . '/leads', ['domain' => $domain]);
-
-            if ($response->failed()) {
-                return redirect('/login')->withErrors(['msg' => 'Không thể lấy dữ liệu']);
-            }
-
-            $data = $response->json();
-            $lead = collect($data['leads'])->firstWhere('ID', $id);
-
-            if (!$lead) {
-                return back()->withErrors(['msg' => 'Lead không tồn tại']);
-            }
-
-            return view('leads.edit', [
-                'id' => $id,
-                'lead' => $lead,
-                'statuses' => $data['statuses'] ?? [],
-                'sources' => $data['sources'] ?? [],
-            ]);
-        } catch (\Exception $e) {
-            return back()->withErrors(['msg' => 'Lỗi hệ thống: ' . $e->getMessage()]);
+            Log::error('Error creating lead', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->withErrors(['error' => 'An error occurred while creating lead: ' . $e->getMessage()]);
         }
     }
 
@@ -177,18 +202,19 @@ class LeadController extends Controller
         $memberId = Session::get('member_id');
 
         if (!$domain || !$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
+            Log::error('Authentication required for update lead', ['id' => $id]);
+            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
         }
 
-        $validated = $request->validate([
+        $request->validate([
             'TITLE' => 'required|string|max:100',
+            'NAME' => 'nullable|string',
             'EMAIL' => 'nullable|email',
             'PHONE' => 'nullable|string',
             'STATUS_ID' => 'nullable|string',
             'SOURCE_ID' => 'nullable|string',
             'COMMENTS' => 'nullable|string|max:1000',
         ]);
-        $validated['domain'] = $domain;
 
         try {
             $response = Http::withHeaders([
@@ -196,69 +222,31 @@ class LeadController extends Controller
                 'X-Member-Id' => $memberId,
             ])
                 ->withOptions(['verify' => false])
-                ->patch(env('BASE_API_URL') . "/leads/{$id}", $validated);
+                ->patch(env('BASE_API_URL') . "leads/{$id}", array_merge($request->all(), ['domain' => $domain]));
 
-            if ($response->failed()) {
-                if ($response->status() === 401) {
-                    Session::flush();
-                    return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập hết hạn']);
-                } elseif ($response->status() === 429) {
-                    return back()->withErrors(['msg' => 'Quá nhiều yêu cầu, vui lòng thử lại sau']);
-                }
-                return back()->withErrors(['msg' => 'Cập nhật lead thất bại: ' . ($response->json()['error_description'] ?? 'Lỗi không xác định')]);
+            if ($response->successful()) {
+                Log::info('Lead updated successfully', ['id' => $id, 'response' => $response->json()]);
+                return redirect()->route('leads.index')->with('success', 'Lead updated successfully');
             }
 
-            return redirect('/leads')->with('success', 'Lead đã được cập nhật');
+            Log::error('Failed to update lead', ['id' => $id, 'response' => $response->json(), 'status' => $response->status()]);
+            return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to update lead']);
         } catch (\Exception $e) {
-            return back()->withErrors(['msg' => 'Lỗi hệ thống: ' . $e->getMessage()]);
+            Log::error('Error updating lead', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->withErrors(['error' => 'An error occurred while updating lead: ' . $e->getMessage()]);
         }
     }
 
     public function destroy($id)
-    {
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập không hợp lệ']);
-        }
-
-        try {
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->delete(env('BASE_API_URL') . "/leads/{$id}");
-
-            if ($response->failed()) {
-                if ($response->status() === 401) {
-                    Session::flush();
-                    return redirect('/login')->withErrors(['msg' => 'Phiên đăng nhập hết hạn']);
-                } elseif ($response->status() === 429) {
-                    return back()->withErrors(['msg' => 'Quá nhiều yêu cầu, vui lòng thử lại sau']);
-                }
-                return back()->withErrors(['msg' => 'Xóa lead thất bại: ' . ($response->json()['error_description'] ?? 'Lỗi không xác định')]);
-            }
-
-            return redirect('/leads')->with('success', 'Lead đã bị xóa');
-        } catch (\Exception $e) {
-            return back()->withErrors(['msg' => 'Lỗi hệ thống: ' . $e->getMessage()]);
-        }
-    }
-
-    public function json(Request $request)
     {
         $domain = Session::get('domain');
         $sessionToken = Session::get('session_token');
         $memberId = Session::get('member_id');
 
         if (!$domain || !$sessionToken || !$memberId) {
-            return response()->json(['error' => 'Phiên đăng nhập không hợp lệ'], 401);
+            Log::error('Authentication required for delete lead', ['id' => $id]);
+            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
         }
-
-        $queryParams = $request->only(['find', 'status', 'source', 'date', 'sort']);
-        $queryParams['domain'] = $domain;
 
         try {
             $response = Http::withHeaders([
@@ -266,22 +254,91 @@ class LeadController extends Controller
                 'X-Member-Id' => $memberId,
             ])
                 ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . '/leads', $queryParams);
+                ->delete(env('BASE_API_URL') . "leads/{$id}");
 
-            if ($response->failed()) {
-                return response()->json(['error' => $response->json()['error_description'] ?? 'API error'], $response->status());
+            if ($response->successful()) {
+                Log::info('Lead deleted successfully', ['id' => $id, 'response' => $response->json()]);
+                return redirect()->route('leads.index')->with('success', 'Lead deleted successfully');
             }
 
-            return $response->json();
+            Log::error('Failed to delete lead', ['id' => $id, 'response' => $response->json(), 'status' => $response->status()]);
+            return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to delete lead']);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Lỗi hệ thống: ' . $e->getMessage()], 500);
+            Log::error('Error deleting lead', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->withErrors(['error' => 'An error occurred while deleting lead: ' . $e->getMessage()]);
         }
     }
 
-    public function setTheme(Request $request)
+    public function webhookLogs(Request $request)
     {
-        $theme = $request->input('theme', 'light');
-        session(['theme' => $theme]);
-        return response()->json(['success' => true]);
+        $sessionToken = Session::get('session_token');
+        $memberId = Session::get('member_id');
+        $page = $request->query('page', 1);
+        $limit = $request->query('limit', 10);
+
+        try {
+            $response = Http::withHeaders([
+                'X-Session-Token' => $sessionToken,
+                'X-Member-Id' => $memberId,
+            ])
+                ->withOptions(['verify' => false])
+                ->get(env('BASE_API_URL') . "webhook/logs?page={$page}&limit={$limit}");
+
+            $data = $response->json();
+            $logs = $data['logs'] ?? [];
+            $total = $data['total'] ?? 0;
+            $currentPage = $data['page'] ?? 1;
+            $perPage = $data['limit'] ?? 10;
+            $totalPages = $data['totalPages'] ?? 1;
+
+            return view('leads.webhook_logs', compact('logs', 'total', 'currentPage', 'perPage', 'totalPages'));
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch webhook logs', ['error' => $e->getMessage()]);
+            return view('webhook_logs', [
+                'logs' => [],
+                'total' => 0,
+                'currentPage' => 1,
+                'perPage' => 10,
+                'totalPages' => 1,
+            ])->with('error', 'Không thể tải log webhook.');
+        }
+    }
+
+    protected function checkRecentWebhooks($sessionToken, $memberId, $leadId = null)
+    {
+        try {
+            $params = ['limit' => 100];
+            if ($leadId) {
+                $params['leadId'] = $leadId;
+            }
+            $response = Http::withHeaders([
+                'X-Session-Token' => $sessionToken,
+                'X-Member-Id' => $memberId,
+            ])
+                ->withOptions(['verify' => false])
+                ->get(env('BASE_API_URL') . 'webhook/logs', $params);
+
+            if ($response->failed()) {
+                Log::error('Failed to check recent webhooks', [
+                    'response' => $response->json(),
+                    'status' => $response->status(),
+                ]);
+                return 0;
+            }
+
+            $logs = $response->json()['logs'] ?? [];
+            $recentCount = count(array_filter($logs, function ($log) use ($leadId) {
+                $isRecent = \Carbon\Carbon::parse($log['createdAt'])->gt(now()->subMinutes(5));
+                if ($leadId) {
+                    return $isRecent && $log['event'] === 'ONCRMLEADUPDATE' && strpos($log['payload'], '"ID":"' . $leadId . '"') !== false;
+                }
+                return $isRecent && in_array($log['event'], ['ONCRMLEADADD', 'ONCRMLEADUPDATE']);
+            }));
+
+            return $recentCount;
+        } catch (\Exception $e) {
+            Log::error('Error checking recent webhooks', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return 0;
+        }
     }
 }

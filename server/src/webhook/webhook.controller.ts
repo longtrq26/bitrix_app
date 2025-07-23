@@ -2,35 +2,69 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
-  HttpCode,
-  Param,
+  HttpException,
+  HttpStatus,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { WebhookDto } from './dto/webhook.dto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { OAuthGuard } from 'src/auth/strategies/oauth.guard';
+import { MemberId } from 'src/common/decorators/member-id.decorator';
+import { Repository } from 'typeorm';
+import { WebhookLog } from './entities/webhook.entity';
 import { WebhookService } from './webhook.service';
 
 @Controller('api/webhook')
 export class WebhookController {
-  constructor(private readonly webhookService: WebhookService) {}
+  constructor(
+    private readonly webhookService: WebhookService,
+    @InjectRepository(WebhookLog)
+    private readonly webhookLogRepository: Repository<WebhookLog>,
+  ) {}
 
-  @Post('lead')
-  @HttpCode(200)
-  async handleWebhook(
-    @Body() body: WebhookDto,
-    @Headers('X-Hook-Token') token: string,
+  @Post()
+  async handleWebhook(@Body() body: any) {
+    const webhookSecret = body.auth?.client_endpoint || body.auth?.access_token;
+    if (!webhookSecret) {
+      throw new HttpException(
+        'Invalid webhook request: Missing auth',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    const event = body.event;
+    const data = body.data;
+    const memberId = body.auth?.member_id;
+    if (!event || !data || !memberId) {
+      throw new HttpException(
+        'Invalid webhook payload',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.webhookService.processWebhook(event, { ...data, memberId });
+    return { status: 'success', message: 'Webhook processed' };
+  }
+
+  @Get('logs')
+  @UseGuards(OAuthGuard)
+  async getWebhookLogs(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @MemberId() memberId: string,
   ) {
-    return this.webhookService.handleLeadWebhook(body, token);
-  }
-
-  @Get('/leads/:id/tasks')
-  async getTasks(@Param('id') id: string, @Query('memberId') memberId: string) {
-    return this.webhookService.getTasksForLead(id, memberId);
-  }
-
-  @Get('/leads/:id/deals')
-  async getDeals(@Param('id') id: string, @Query('memberId') memberId: string) {
-    return this.webhookService.getDealsForLead(id, memberId);
+    const skip = (page - 1) * limit;
+    const [logs, total] = await this.webhookLogRepository.findAndCount({
+      where: { memberId },
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+    return {
+      logs,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }

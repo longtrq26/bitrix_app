@@ -1,5 +1,6 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { CryptoModule } from 'src/common/crypto/crypto.module';
 import { RedisModule } from 'src/redis/redis.module';
 import { AuthController } from './auth.controller';
@@ -10,7 +11,7 @@ import { AuthTokenService } from './services/auth-token.service';
 import { OAuthGuard } from './strategies/oauth.guard';
 
 @Module({
-  imports: [HttpModule, CryptoModule, RedisModule],
+  imports: [ConfigModule, HttpModule, CryptoModule, RedisModule],
   controllers: [AuthController],
   providers: [
     AuthService,
