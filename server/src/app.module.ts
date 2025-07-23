@@ -6,10 +6,10 @@ import { WinstonModule } from 'nest-winston';
 import { format, transports } from 'winston';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
+import { AppDataSource, typeOrmConfig } from './config/database.config';
 import { LeadsModule } from './leads/leads.module';
 import { RedisModule } from './redis/redis.module';
 import { WebhookModule } from './webhook/webhook.module';
-import { WebhookLog } from './webhook/entities/webhook.entity';
 
 @Module({
   imports: [
@@ -22,23 +22,11 @@ import { WebhookLog } from './webhook/entities/webhook.entity';
         new transports.Console({
           format: format.combine(format.timestamp(), format.json()),
         }),
+        new transports.File({ filename: 'logs/error.log', level: 'error' }),
+        new transports.File({ filename: 'logs/combined.log' }),
       ],
     }),
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get('DB_USERNAME'),
-        password: configService.get('DB_PASSWORD'),
-        database: configService.get('DB_DATABASE'),
-        autoLoadEntities: true,
-        synchronize: false,
-        logging: true,
-      }),
-    }),
+    TypeOrmModule.forRoot(typeOrmConfig),
 
     HttpModule,
     RedisModule,

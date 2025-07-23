@@ -18,7 +18,7 @@ export class AnalyticsController {
   @Get('deals')
   async getDealAnalytics(@Query('memberId') memberId: string) {
     return limiter.schedule(() =>
-      this.analyticsService.getLeadAnalytics(memberId),
+      this.analyticsService.getDealAnalytics(memberId),
     );
   }
 

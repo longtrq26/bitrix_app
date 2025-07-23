@@ -275,14 +275,22 @@ class LeadController extends Controller
         $memberId = Session::get('member_id');
         $page = $request->query('page', 1);
         $limit = $request->query('limit', 10);
+        $event = $request->query('event');
+        $leadId = $request->query('leadId');
 
         try {
+            $params = ['page' => $page, 'limit' => $limit];
+            if ($event)
+                $params['event'] = $event;
+            if ($leadId)
+                $params['leadId'] = $leadId;
+
             $response = Http::withHeaders([
                 'X-Session-Token' => $sessionToken,
                 'X-Member-Id' => $memberId,
             ])
                 ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . "webhook/logs?page={$page}&limit={$limit}");
+                ->get(env('BASE_API_URL') . "webhook/logs", $params);
 
             $data = $response->json();
             $logs = $data['logs'] ?? [];

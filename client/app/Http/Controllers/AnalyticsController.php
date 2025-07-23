@@ -47,6 +47,14 @@ class AnalyticsController extends Controller
             $dealAnalytics = $dealAnalyticsResponse->json() ?? [];
             $taskAnalytics = $taskAnalyticsResponse->json() ?? [];
 
+            Log::debug('Lead Analytics', $leadAnalytics ?? []);
+            Log::debug('Deal Analytics', $dealAnalytics ?? []);
+            Log::debug('Task Analytics raw', ['raw' => $taskAnalyticsResponse->body()]);
+            Log::debug('Task Analytics', $taskAnalytics ?? []);
+            Log::debug('Deal Analytics raw', ['body' => $dealAnalyticsResponse->body()]);
+            Log::debug('Task Analytics raw', ['body' => $taskAnalyticsResponse->body()]);
+
+
             return view('analytics.index', compact('leadAnalytics', 'dealAnalytics', 'taskAnalytics'));
 
         } catch (\Exception $e) {

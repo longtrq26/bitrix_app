@@ -1,101 +1,94 @@
-<!DOCTYPE html>
-<html lang="vi">
+@extends('layouts.app')
 
-<head>
-    <meta charset="UTF-8">
-    <title>Bitrix24 CRM Automation Suite</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-</head>
-
-<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-white min-h-screen p-6">
-    <div class="max-w-7xl mx-auto space-y-6">
-        <h1 class="text-3xl font-bold">Danh sách Lead</h1>
-
-        @if (session('success'))
-            <script>
-                Swal.fire({ icon: 'success', title: 'Thành công', text: '{{ session('success') }}' });
-            </script>
-        @endif
-        @if ($errors->has('error'))
-            <script>
-                Swal.fire({ icon: 'error', title: 'Lỗi', text: '{{ $errors->first('error') }}' });
-            </script>
-        @endif
-
-        @if ($recentWebhooks > 0)
-            <script>
-                Swal.fire({
-                    icon: 'info',
-                    title: 'Cập nhật mới',
-                    text: '{{ $recentWebhooks }} sự kiện webhook mới đã được ghi nhận. Vui lòng làm mới trang để xem dữ liệu mới nhất.',
-                    showConfirmButton: true,
-                    confirmButtonText: 'Làm mới',
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        window.location.reload();
-                    }
-                });
-            </script>
-        @endif
-
-        <div class="flex justify-end mb-4">
-            <a href="{{ route('leads.webhook_logs') }}"
-                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Xem Webhook Logs</a>
-        </div>
-
-        <form method="GET" action="{{ route('leads.index') }}"
-            class="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white dark:bg-gray-800 p-4 rounded shadow">
-            <input type="text" name="find" placeholder="Tìm theo tiêu đề" value="{{ request('find') }}"
-                class="border p-2 rounded dark:bg-gray-700 dark:text-white">
-            <select name="status" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
-                <option value="">Tất cả trạng thái</option>
-                @foreach ($statuses ?? [] as $status)
-                    <option value="{{ $status['STATUS_ID'] }}" {{ request('status') === $status['STATUS_ID'] ? 'selected' : '' }}>
-                        {{ $status['NAME'] }}
-                    </option>
-                @endforeach
-            </select>
-            <select name="source" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
-                <option value="">Tất cả nguồn</option>
-                @foreach ($sources ?? [] as $source)
-                    <option value="{{ $source['STATUS_ID'] }}" {{ request('source') === $source['STATUS_ID'] ? 'selected' : '' }}>
-                        {{ $source['NAME'] }}
-                    </option>
-                @endforeach
-            </select>
-            <input type="date" name="date" value="{{ request('date') }}"
-                class="border p-2 rounded dark:bg-gray-700 dark:text-white">
-            <select name="sort" class="border p-2 rounded dark:bg-gray-700 dark:text-white">
-                <option value="DATE_CREATE" {{ request('sort') === 'DATE_CREATE' ? 'selected' : '' }}>Sắp xếp theo ngày
-                </option>
-                <option value="TITLE" {{ request('sort') === 'TITLE' ? 'selected' : '' }}>Sắp xếp theo tiêu đề</option>
-            </select>
-            <div class="md:col-span-5 text-right">
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Lọc</button>
+@section('content')
+    <div class="space-y-6">
+        <!-- Form tìm kiếm và lọc -->
+        <form method="GET" action="{{ route('leads.index') }}" class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Tìm kiếm</label>
+                    <input type="text" name="find" value="{{ request('find') }}" placeholder="Tiêu đề, tên, email..."
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Trạng thái</label>
+                    <select name="status"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">Tất cả trạng thái</option>
+                        @foreach ($statuses ?? [] as $status)
+                            <option value="{{ $status['STATUS_ID'] }}" {{ request('status') === $status['STATUS_ID'] ? 'selected' : '' }}>
+                                {{ $status['NAME'] }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Nguồn</label>
+                    <select name="source"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">Tất cả nguồn</option>
+                        @foreach ($sources ?? [] as $source)
+                            <option value="{{ $source['STATUS_ID'] }}" {{ request('source') === $source['STATUS_ID'] ? 'selected' : '' }}>
+                                {{ $source['NAME'] }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Ngày tạo</label>
+                    <input type="date" name="date" value="{{ request('date') }}"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Sắp xếp</label>
+                    <select name="sort"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="DATE_CREATE" {{ request('sort') === 'DATE_CREATE' ? 'selected' : '' }}>Theo ngày
+                        </option>
+                        <option value="TITLE" {{ request('sort') === 'TITLE' ? 'selected' : '' }}>Theo tiêu đề</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex items-center">
+                    <span id="loading"
+                        class="hidden animate-spin h-5 w-5 mr-2 border-2 border-white border-t-transparent rounded-full"></span>
+                    Lọc
+                </button>
             </div>
         </form>
 
-        <form method="POST" action="{{ route('leads.store') }}"
-            class="bg-white dark:bg-gray-800 p-6 rounded shadow space-y-4">
+        <!-- Form thêm lead -->
+        <form method="POST" action="{{ route('leads.store') }}" class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
             @csrf
-            <h2 class="text-xl font-semibold">Thêm Lead mới</h2>
+            <h2 class="text-xl font-semibold mb-4">Thêm Lead mới</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <input type="text" name="TITLE" placeholder="Tiêu đề *" value="{{ old('TITLE') }}"
-                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white" required>
-                    @error('TITLE') <p class="text-red-500 text-sm">{{ $message }}</p> @enderror
+                    <label class="block text-sm font-medium dark:text-gray-300">Tiêu đề *</label>
+                    <input type="text" name="TITLE" value="{{ old('TITLE') }}" required
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                    @error('TITLE') <p class="text-red-500 text-sm mt-1">{{ $message }}</p> @enderror
                 </div>
-                <input type="text" name="NAME" placeholder="Tên" value="{{ old('NAME') }}"
-                    class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
-                <input type="email" name="EMAIL" placeholder="Email" value="{{ old('EMAIL') }}"
-                    class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
-                @error('EMAIL') <p class="text-red-500 text-sm">{{ $message }}</p> @enderror
-                <input type="text" name="PHONE" placeholder="SĐT" value="{{ old('PHONE') }}"
-                    class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white">
                 <div>
-                    <select name="STATUS_ID" class="border p-2 rounded dark:bg-gray-700 dark:text-white w-full">
+                    <label class="block text-sm font-medium dark:text-gray-300">Tên</label>
+                    <input type="text" name="NAME" value="{{ old('NAME') }}"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Email</label>
+                    <input type="email" name="EMAIL" value="{{ old('EMAIL') }}"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                    @error('EMAIL') <p class="text-red-500 text-sm mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Số điện thoại</label>
+                    <input type="text" name="PHONE" value="{{ old('PHONE') }}"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium dark:text-gray-300">Trạng thái</label>
+                    <select name="STATUS_ID"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                         <option value="">Chọn trạng thái</option>
                         @foreach ($statuses ?? [] as $status)
                             <option value="{{ $status['STATUS_ID'] }}" {{ old('STATUS_ID') == $status['STATUS_ID'] ? 'selected' : '' }}>
@@ -105,7 +98,9 @@
                     </select>
                 </div>
                 <div>
-                    <select name="SOURCE_ID" class="border p-2 rounded dark:bg-gray-700 dark:text-white w-full">
+                    <label class="block text-sm font-medium dark:text-gray-300">Nguồn</label>
+                    <select name="SOURCE_ID"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                         <option value="">Chọn nguồn</option>
                         @foreach ($sources ?? [] as $source)
                             <option value="{{ $source['STATUS_ID'] }}" {{ old('SOURCE_ID') == $source['STATUS_ID'] ? 'selected' : '' }}>
@@ -114,52 +109,58 @@
                         @endforeach
                     </select>
                 </div>
-                <textarea name="COMMENTS" rows="3" placeholder="Ghi chú"
-                    class="md:col-span-2 w-full border p-2 rounded dark:bg-gray-700 dark:text-white">{{ old('COMMENTS') }}</textarea>
-                @error('COMMENTS') <p class="text-red-500 text-sm">{{ $message }}</p> @enderror
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium dark:text-gray-300">Ghi chú</label>
+                    <textarea name="COMMENTS" rows="3"
+                        class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">{{ old('COMMENTS') }}</textarea>
+                    @error('COMMENTS') <p class="text-red-500 text-sm mt-1">{{ $message }}</p> @enderror
+                </div>
             </div>
-            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Thêm
-                Lead</button>
+            <div class="mt-4 flex justify-end">
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Thêm
+                    Lead</button>
+            </div>
         </form>
 
-        <div class="overflow-x-auto bg-white dark:bg-gray-800 rounded shadow">
+        <!-- Bảng lead -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead class="bg-gray-100 dark:bg-gray-700">
                     <tr>
-                        <th class="px-4 py-2 text-left">ID</th>
-                        <th class="px-4 py-2 text-left">Tiêu đề</th>
-                        <th class="px-4 py-2 text-left">Trạng thái</th>
-                        <th class="px-4 py-2 text-left">Nguồn</th>
-                        <th class="px-4 py-2 text-left">Ngày tạo</th>
-                        <th class="px-4 py-2 text-left">Hành động</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium dark:text-white">ID</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium dark:text-white">Tiêu đề</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium dark:text-white">Trạng thái</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium dark:text-white">Nguồn</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium dark:text-white">Ngày tạo</th>
+                        <th class="px-6 py-3 text-left text-sm font-medium dark:text-white">Hành động</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                     @if (empty($leads))
                         <tr>
-                            <td colspan="6" class="px-4 py-4 text-center">Không có lead nào</td>
+                            <td colspan="6" class="px-6 py-4 text-center dark:text-white">Không có lead nào</td>
                         </tr>
                     @else
                         @foreach ($leads as $lead)
-                            <tr>
-                                <td class="px-4 py-2">{{ $lead['ID'] ?? 'N/A' }}</td>
-                                <td class="px-4 py-2">{{ $lead['TITLE'] ?? 'N/A' }}</td>
-                                <td class="px-4 py-2">
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                <td class="px-6 py-4 dark:text-white">{{ $lead['ID'] ?? 'N/A' }}</td>
+                                <td class="px-6 py-4 dark:text-white">{{ $lead['TITLE'] ?? 'N/A' }}</td>
+                                <td class="px-6 py-4 dark:text-white">
                                     {{ collect($statuses)->firstWhere('STATUS_ID', $lead['STATUS_ID'])['NAME'] ?? $lead['STATUS_ID'] ?? 'N/A' }}
                                 </td>
-                                <td class="px-4 py-2">
+                                <td class="px-6 py-4 dark:text-white">
                                     {{ collect($sources)->firstWhere('STATUS_ID', $lead['SOURCE_ID'])['NAME'] ?? $lead['SOURCE_ID'] ?? 'N/A' }}
                                 </td>
-                                <td class="px-4 py-2">
+                                <td class="px-6 py-4 dark:text-white">
                                     {{ isset($lead['DATE_CREATE']) ? \Carbon\Carbon::parse($lead['DATE_CREATE'])->format('d/m/Y H:i') : 'N/A' }}
                                 </td>
-                                <td class="px-4 py-2 space-x-2">
+                                <td class="px-6 py-4 space-x-2">
                                     <a href="{{ route('leads.show', $lead['ID']) }}"
-                                        class="text-blue-600 hover:underline">Xem</a>
+                                        class="text-blue-600 dark:text-blue-400 hover:underline">Xem</a>
                                     <form action="{{ route('leads.destroy', $lead['ID']) }}" method="POST" class="inline">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="text-red-600 hover:underline"
+                                        <button type="submit" class="text-red-600 dark:text-red-400 hover:underline"
                                             onclick="return confirm('Bạn có chắc chắn muốn xóa?')">Xóa</button>
                                     </form>
                                 </td>
@@ -169,7 +170,33 @@
                 </tbody>
             </table>
         </div>
-    </div>
-</body>
 
-</html>
+        <!-- Phân trang -->
+        @if (!empty($leads))
+            <div class="mt-4 flex justify-center">
+                <nav class="inline-flex -space-x-px rounded-md shadow">
+                    @for ($i = 1; $i <= ceil(count($leads) / 10); $i++)
+                        <a href="{{ route('leads.index', array_merge(request()->query(), ['page' => $i])) }}"
+                            class="px-3 py-2 {{ request('page', 1) == $i ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 dark:text-white' }} border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            {{ $i }}
+                        </a>
+                    @endfor
+                </nav>
+            </div>
+        @endif
+
+        <!-- Nút xem webhook logs -->
+        <div class="flex justify-end">
+            <a href="{{ route('leads.webhook_logs') }}"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Xem Webhook Logs</a>
+        </div>
+    </div>
+
+    @push('scripts')
+        <script>
+            document.querySelector('form').addEventListener('submit', function () {
+                document.getElementById('loading').classList.remove('hidden');
+            });
+        </script>
+    @endpush
+@endsection

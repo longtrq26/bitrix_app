@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Job } from 'bull';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from 'src/auth/auth.service';
+import { RedisService } from 'src/redis/redis.service';
 import { WebhookLog } from 'src/webhook/entities/webhook.entity';
 import { Repository } from 'typeorm';
 
@@ -15,6 +16,7 @@ export class WebhookProcessor {
   constructor(
     private readonly httpService: HttpService,
     private readonly authService: AuthService,
+    private readonly redisService: RedisService,
     @InjectRepository(WebhookLog)
     private readonly webhookLogRepository: Repository<WebhookLog>,
   ) {}
@@ -98,6 +100,7 @@ export class WebhookProcessor {
                 TITLE: `Follow up Lead: ${lead.TITLE}`,
                 DESCRIPTION: `Phone: ${lead.PHONE?.[0]?.VALUE || ''}, Email: ${lead.EMAIL?.[0]?.VALUE || ''}, Source: ${lead.SOURCE_ID}`,
                 RESPONSIBLE_ID: responsibleId,
+                UF_CRM_TASK: `L_${leadId}`,
               },
             },
           },
@@ -147,7 +150,18 @@ export class WebhookProcessor {
   }
 
   private async roundRobin(users: any[]): Promise<number> {
-    const index = Math.floor(Math.random() * users.length);
-    return users[index].ID;
+    const redisKey = 'round-robin:last-user';
+    const lastIndex = parseInt(
+      (await this.redisService.get(redisKey)) || '0',
+      10,
+    );
+    const nextIndex = (lastIndex + 1) % users.length;
+
+    this.logger.log(
+      `Users: ${JSON.stringify(users)}, Selected index: ${nextIndex}`,
+    );
+
+    await this.redisService.set(redisKey, nextIndex.toString(), 60);
+    return users[nextIndex].ID;
   }
 }

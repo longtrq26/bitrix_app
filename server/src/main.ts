@@ -1,7 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { WinstonModule } from 'nest-winston';
-import { format, transports } from 'winston';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
