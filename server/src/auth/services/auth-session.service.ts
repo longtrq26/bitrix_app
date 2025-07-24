@@ -12,20 +12,25 @@ export class AuthSessionService {
     @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
   ) {}
 
-  // Tạo session mới
   async create(memberId: string, ttl = 600): Promise<string> {
-    // Tạo session token bằng UUID v4
     const sessionToken = uuidv4();
     try {
+      // Lưu session vào Redis
       await this.redisService.set(
         RedisKeys.session(sessionToken),
         memberId,
         ttl,
       );
 
+      // Thêm sessionToken vào Set của memberId
+      const sessionSetKey = RedisKeys.sessionSet(memberId);
+      await this.redisService.sadd(sessionSetKey, sessionToken);
+      await this.redisService.expire(sessionSetKey, ttl);
+
       this.logger.info(
         `Session created successfully for memberId: ${memberId} with token: ${sessionToken}. TTL: ${ttl}s`,
       );
+
       return sessionToken;
     } catch (error) {
       this.logger.error(
@@ -36,11 +41,9 @@ export class AuthSessionService {
     }
   }
 
-  // Lấy memberId từ session token
   async getMemberId(sessionToken: string): Promise<string> {
     let memberId: string | null = null;
     try {
-      // Lấy memberId từ Redis sử dụng sessionToken làm key
       memberId = await this.redisService.get(RedisKeys.session(sessionToken));
     } catch (error) {
       this.logger.error(
@@ -52,7 +55,6 @@ export class AuthSessionService {
       );
     }
 
-    // Nếu session token không tồn tại hoặc đã hết hạn
     if (!memberId) {
       this.logger.warn(
         `Invalid or expired session token received: ${sessionToken}.`,
@@ -63,19 +65,54 @@ export class AuthSessionService {
     this.logger.debug(
       `Successfully retrieved memberId: ${memberId} for sessionToken: ${sessionToken}.`,
     );
+
     return memberId;
   }
 
   async delete(sessionToken: string): Promise<void> {
     try {
-      await this.redisService.del(RedisKeys.session(sessionToken));
-
-      this.logger.info(
-        `Session successfully deleted for token: ${sessionToken}.`,
+      const memberId = await this.redisService.get(
+        RedisKeys.session(sessionToken),
       );
+
+      if (memberId) {
+        const sessionSetKey = RedisKeys.sessionSet(memberId);
+        await Promise.all([
+          this.redisService.del(RedisKeys.session(sessionToken)),
+          this.redisService.srem(sessionSetKey, sessionToken),
+        ]);
+        this.logger.info(
+          `Session successfully deleted for token: ${sessionToken}.`,
+        );
+      }
     } catch (error) {
       this.logger.error(
         `Failed to delete session for token: ${sessionToken}`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  async deleteAllSessions(memberId: string): Promise<void> {
+    try {
+      const sessionSetKey = RedisKeys.sessionSet(memberId);
+      const sessionTokens = await this.redisService.smembers(sessionSetKey);
+      if (sessionTokens.length > 0) {
+        const sessionKeys = sessionTokens.map((token) =>
+          RedisKeys.session(token),
+        );
+        await Promise.all([
+          this.redisService.del(...sessionKeys),
+          this.redisService.del(sessionSetKey),
+        ]);
+        this.logger.info(
+          `Deleted ${sessionTokens.length} sessions for memberId: ${memberId}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete sessions for memberId: ${memberId}`,
         error,
       );
       throw error;

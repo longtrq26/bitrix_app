@@ -5,16 +5,16 @@ use App\Http\Controllers\LeadController;
 use App\Http\Controllers\AnalyticsController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return redirect()->route('login');
-})->name('home');
-
-Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
-Route::get('/connect', [AuthController::class, 'redirectToBitrix'])->name('connect');
-Route::get('/auth/callback', [AuthController::class, 'handleCallback'])->name('auth.callback');
-Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-
 Route::middleware(['web'])->group(function () {
+    Route::get('/', function () {
+        return redirect()->route('login');
+    })->name('home');
+
+    Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
+    Route::get('/connect', [AuthController::class, 'redirectToBitrix'])->name('connect');
+    Route::get('/auth/callback', [AuthController::class, 'handleCallback'])->name('auth.callback');
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
     Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
     Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
     Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');

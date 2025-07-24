@@ -23,6 +23,7 @@ class AuthController extends Controller
         ]);
 
         $domain = $request->input('domain');
+        Session::put('domain', $domain);
 
         try {
             $response = Http::withOptions(['verify' => false, 'allow_redirects' => false])
@@ -78,6 +79,7 @@ class AuthController extends Controller
         try {
             Log::info('Attempting to fetch member data using session token.', ['session_token_partial' => substr($sessionToken, 0, 8) . '...']);
 
+            // Lấy memberId
             $response = Http::backend()
                 ->get(env('BASE_API_URL') . 'auth/member', [
                     'session' => $sessionToken,
@@ -107,11 +109,37 @@ class AuthController extends Controller
                 return redirect('/login')->withErrors(['msg' => 'Không thể lấy member ID.']);
             }
 
+            // Lấy domain từ backend
+            $domainResponse = Http::backend()
+                ->get(env('BASE_API_URL') . 'auth/domain', [
+                    'memberId' => $memberId,
+                ]);
+
+            if ($domainResponse->failed()) {
+                Log::error('Failed to fetch domain from backend API.', [
+                    'member_id' => $memberId,
+                    'status' => $domainResponse->status(),
+                    'response_body' => $domainResponse->json(),
+                ]);
+                return redirect('/login')->withErrors(['msg' => 'Không thể lấy thông tin domain.']);
+            }
+
+            $domain = $domainResponse->body();
+            if (!$domain) {
+                Log::error('Missing domain in auth/domain response from backend.', [
+                    'member_id' => $memberId,
+                    'response_body' => $domainResponse->json(),
+                ]);
+                return redirect('/login')->withErrors(['msg' => 'Không thể lấy domain.']);
+            }
+
             Session::put('session_token', $sessionToken);
             Session::put('member_id', $memberId);
-            Log::info('Successfully processed OAuth callback and saved member ID to Laravel session.', [
+            Session::put('domain', $domain);
+            Log::info('Successfully processed OAuth callback and saved data to Laravel session.', [
                 'member_id' => $memberId,
-                'session_token_partial' => substr($sessionToken, 0, 8) . '...'
+                'session_token_partial' => substr($sessionToken, 0, 8) . '...',
+                'domain' => $domain,
             ]);
 
             return redirect('/leads');

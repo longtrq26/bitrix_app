@@ -19,6 +19,8 @@ class LeadController extends Controller
 
     public function index(Request $request)
     {
+        Log::debug('Session in /leads page', Session::all());
+
         $domain = Session::get('domain');
         $sessionToken = Session::get('session_token');
         $memberId = Session::get('member_id');

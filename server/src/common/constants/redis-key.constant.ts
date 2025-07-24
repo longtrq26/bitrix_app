@@ -1,5 +1,17 @@
-export const RedisKeys = {
-  token: (memberId: string) => `bitrix24:token:${memberId}`,
-  session: (token: string) => `bitrix24:session:${token}`,
-  state: (domain: string) => `bitrix24:state:${domain}`,
-};
+export class RedisKeys {
+  static session(token: string): string {
+    return `session:${token}`;
+  }
+
+  static sessionSet(memberId: string): string {
+    return `session_set:${memberId}`;
+  }
+
+  static state(domain: string): string {
+    return `state:${domain}`;
+  }
+
+  static token(memberId: string): string {
+    return `token:${memberId}`;
+  }
+}

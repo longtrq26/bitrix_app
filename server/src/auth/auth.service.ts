@@ -160,6 +160,20 @@ export class AuthService {
       throw error;
     }
 
+    try {
+      await this.sessionService.deleteAllSessions(member_id);
+      sessionToken = await this.sessionService.create(member_id);
+      this.logger.debug(
+        `Session created for member_id: ${member_id}. Session token: ${sessionToken.substring(0, 8)}...`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to create session for member_id: ${member_id} after token exchange.`,
+        error,
+      );
+      throw error;
+    }
+
     return { memberId: member_id, sessionToken };
   }
 

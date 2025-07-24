@@ -278,8 +278,7 @@ export class AuthController {
       throw new BadRequestException('Member ID is required for logout.');
     }
 
-    const sessionToken = req.cookies['session_token'];
-
+    const sessionToken = req.cookies ? req.cookies['session_token'] : null;
     if (sessionToken) {
       this.logger.debug(
         `Attempting to delete session for token: ${sessionToken.substring(0, 8)}...`,
@@ -304,6 +303,7 @@ export class AuthController {
     }
 
     res.clearCookie('session_token');
+
     this.logger.info(
       `Cleared session_token cookie for memberId: ${memberId}. Logout complete.`,
     );

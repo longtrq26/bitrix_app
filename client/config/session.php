@@ -18,7 +18,7 @@ return [
     |
     */
 
-    'driver' => env('SESSION_DRIVER', 'database'),
+    'driver' => env('SESSION_DRIVER', 'file'),
 
     /*
     |--------------------------------------------------------------------------
@@ -73,7 +73,7 @@ return [
     |
     */
 
-    'connection' => env('SESSION_CONNECTION'),
+    'connection' => env('SESSION_CONNECTION', "default"),
 
     /*
     |--------------------------------------------------------------------------
@@ -129,7 +129,7 @@ return [
 
     'cookie' => env(
         'SESSION_COOKIE',
-        Str::snake((string) env('APP_NAME', 'laravel')).'_session'
+        Str::snake((string) env('APP_NAME', 'laravel')) . '_session'
     ),
 
     /*
@@ -156,7 +156,7 @@ return [
     |
     */
 
-    'domain' => env('SESSION_DOMAIN'),
+    'domain' => env('SESSION_DOMAIN', null),
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +169,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -199,7 +199,7 @@ return [
     |
     */
 
-    'same_site' => env('SESSION_SAME_SITE', 'lax'),
+    'same_site' => env('SESSION_SAME_SITE', 'none'),
 
     /*
     |--------------------------------------------------------------------------
