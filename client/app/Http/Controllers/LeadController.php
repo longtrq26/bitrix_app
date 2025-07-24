@@ -28,9 +28,13 @@ class LeadController extends Controller
             return redirect('/login')->withErrors(['msg' => 'Authentication required']);
         }
 
-        $query = array_merge($request->only(['find', 'status', 'source', 'date', 'sort']), ['domain' => $domain]);
+        $query = array_merge(
+            $request->only(['find', 'status', 'source', 'date', 'sort', 'page', 'limit']),
+            ['domain' => $domain]
+        );
+        Log::debug('Query parameters received in LeadController', ['query' => $query]);
+
         try {
-            // Fetch leads
             $response = Http::withHeaders([
                 'X-Session-Token' => $sessionToken,
                 'X-Member-Id' => $memberId,
@@ -51,8 +55,10 @@ class LeadController extends Controller
             $fields = $payload['fields'] ?? [];
             $statuses = $payload['statuses'] ?? [];
             $sources = $payload['sources'] ?? [];
+            $total = $payload['total'] ?? 0;
+            $currentPage = $payload['page'] ?? 1;
+            $perPage = $payload['limit'] ?? 10;
 
-            // Check for recent webhook events
             $recentWebhooks = $this->checkRecentWebhooks($sessionToken, $memberId);
 
             Log::info('Fetched leads', [
@@ -62,7 +68,7 @@ class LeadController extends Controller
                 'recent_webhooks' => $recentWebhooks,
             ]);
 
-            return view('leads.index', compact('leads', 'fields', 'statuses', 'sources', 'recentWebhooks'));
+            return view('leads.index', compact('leads', 'fields', 'statuses', 'sources', 'recentWebhooks', 'total', 'currentPage', 'perPage'));
         } catch (\Exception $e) {
             Log::error('Error fetching leads', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return back()->withErrors(['error' => 'An error occurred while fetching leads: ' . $e->getMessage()]);

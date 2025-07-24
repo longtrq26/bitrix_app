@@ -1,12 +1,12 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WinstonModule } from 'nest-winston';
 import { format, transports } from 'winston';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
-import { AppDataSource, typeOrmConfig } from './config/database.config';
+import { typeOrmConfig } from './config/database.config';
 import { LeadsModule } from './leads/leads.module';
 import { RedisModule } from './redis/redis.module';
 import { WebhookModule } from './webhook/webhook.module';
