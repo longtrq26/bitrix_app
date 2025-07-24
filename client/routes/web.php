@@ -16,8 +16,10 @@ Route::get('/auth/callback', [AuthController::class, 'handleCallback']);
 
 Route::middleware('web')->group(function () {
     Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
-    Route::get('/leads/{id}', [LeadController::class, 'show'])->name('leads.show');
+    Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
     Route::post('/leads', [LeadController::class, 'store'])->name('leads.store');
+    Route::get('/leads/{id}', [LeadController::class, 'show'])->name('leads.show');
+    Route::get('/leads/{id}/edit', [LeadController::class, 'edit'])->name('leads.edit');
     Route::patch('/leads/{id}', [LeadController::class, 'update'])->name('leads.update');
     Route::delete('/leads/{id}', [LeadController::class, 'destroy'])->name('leads.destroy');
     Route::get('/leads/webhook/logs', [LeadController::class, 'webhookLogs'])->name('leads.webhook_logs');
