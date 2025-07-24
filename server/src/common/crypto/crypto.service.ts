@@ -6,11 +6,6 @@ import * as crypto from 'crypto';
 export class CryptoService {
   constructor(private readonly configService: ConfigService) {}
 
-  /**
-   * Mã hóa dữ liệu đầu vào.
-   * @param data Dữ liệu cần mã hóa (có thể là bất kỳ kiểu dữ liệu nào sẽ được JSON.stringify).
-   * @returns Chuỗi đã được mã hóa ở định dạng 'ivHex:encryptedDataHex'.
-   */
   encrypt(data: any): string {
     // Lấy khóa mã hóa từ cấu hình
     const key = this.getEncryptionKey();
@@ -29,11 +24,6 @@ export class CryptoService {
     return iv.toString('hex') + ':' + encrypted;
   }
 
-  /**
-   * Giải mã một chuỗi đã được mã hóa.
-   * @param encrypted Chuỗi đã mã hóa ở định dạng 'ivHex:encryptedDataHex'.
-   * @returns Dữ liệu đã giải mã (dưới dạng đối tượng JSON).
-   */
   decrypt(encrypted: string): any {
     // Tách chuỗi mã hóa thành IV (hex) và dữ liệu mã hóa
     const [ivHex, encryptedData] = encrypted.split(':');
@@ -55,11 +45,6 @@ export class CryptoService {
     return JSON.parse(decrypted);
   }
 
-  /**
-   * Lấy khóa mã hóa từ ConfigService và kiểm tra định dạng của khóa.
-   * @returns Khóa mã hóa dưới dạng Buffer.
-   * @throws Error nếu ENCRYPTION_KEY không được định nghĩa hoặc không đúng định dạng.
-   */
   private getEncryptionKey(): Buffer {
     // Lấy giá trị của biến môi trường 'ENCRYPTION_KEY'
     const key = this.configService.get<string>('ENCRYPTION_KEY');
