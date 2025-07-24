@@ -29,6 +29,10 @@ export class LeadsService {
     const domain = dto.domain || (await this.authService.getDomain(memberId));
     this.validateDomain(domain);
 
+    const page = Number(dto.page) || 1;
+    const limit = Number(dto.limit) || 50;
+    const start = (page - 1) * limit;
+
     const cacheKey = buildCacheKey(memberId, dto);
     const cached = await this.redisService.get(cacheKey);
     if (cached) {
@@ -51,7 +55,7 @@ export class LeadsService {
     }
 
     const url = `https://${domain}/rest/batch`;
-    const cmd = this.buildLeadBatchQuery(dto);
+    const cmd = this.buildLeadBatchQuery({ ...dto, start });
 
     const fetchLeads = async (token: string) => {
       const response = await firstValueFrom(
@@ -82,6 +86,9 @@ export class LeadsService {
         fields: data?.fields || {},
         statuses: data?.statuses || [],
         sources: data?.sources || [],
+        total: data?.leads?.total || 0,
+        page,
+        limit,
       };
     };
 
@@ -480,20 +487,33 @@ export class LeadsService {
     }
   }
 
-  private buildLeadBatchQuery(dto: QueryLeadDto) {
+  private buildLeadBatchQuery(dto: QueryLeadDto & { start?: number }) {
     const filter: Record<string, any> = {};
     const order: Record<string, string> = {};
 
-    if (dto.find) filter['%TITLE'] = dto.find;
+    if (dto.find) {
+      filter['LOGIC'] = 'OR';
+      filter['%TITLE'] = dto.find;
+      filter['%NAME'] = dto.find;
+      filter['%EMAIL'] = dto.find;
+    }
     if (dto.status) filter['STATUS_ID'] = dto.status;
     if (dto.source) filter['SOURCE_ID'] = dto.source;
-    if (dto.date) filter['>=DATE_CREATE'] = dto.date;
+    if (dto.date) {
+      try {
+        const parsedDate =
+          new Date(dto.date).toISOString().split('T')[0] + ' 00:00:00';
+        filter['>=DATE_CREATE'] = parsedDate;
+      } catch (error) {
+        this.logger.warn(`Invalid date format: ${dto.date}`);
+      }
+    }
 
     const sortField = dto.sort || 'DATE_CREATE';
     order[sortField] = 'DESC';
 
     const query = qs.stringify(
-      { filter, order },
+      { filter, order, start: dto.start || 0, select: ['*', 'EMAIL', 'PHONE'] },
       {
         encode: false,
         arrayFormat: 'brackets',

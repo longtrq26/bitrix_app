@@ -6,16 +6,30 @@ export const buildCacheKey = (
   query: QueryLeadDto,
 ): string => {
   const relevantQuery = {
-    search: query.find,
-    status: query.status,
-    source: query.source,
-    date: query.date,
-    sort: query.sort,
+    find: query.find || '',
+    status: query.status || '',
+    source: query.source || '',
+    date: query.date || '',
+    sort: query.sort || '',
+    page: query.page?.toString() || '1',
+    limit: query.limit?.toString() || '50',
+    domain: query.domain || '',
   };
+
+  // Sắp xếp các key để đảm bảo thứ tự nhất quán
+  const sortedQuery = Object.keys(relevantQuery)
+    .sort()
+    .reduce(
+      (obj, key) => {
+        obj[key] = relevantQuery[key];
+        return obj;
+      },
+      {} as Record<string, string>,
+    );
 
   const hash = crypto
     .createHash('md5')
-    .update(JSON.stringify(relevantQuery))
+    .update(JSON.stringify(sortedQuery))
     .digest('hex');
 
   return `leads:${memberId}:${hash}`;

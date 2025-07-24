@@ -12,7 +12,10 @@
     <div class="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-md w-full max-w-md">
         <h1 class="text-2xl font-bold mb-6 text-center dark:text-white">Đăng nhập Bitrix24</h1>
 
-        @if ($errors->any())
+        {{-- Prioritize 'msg' errors which come from our controller --}}
+        @if ($errors->has('msg'))
+            <div class="mb-4 text-red-500 text-sm text-center">{{ $errors->first('msg') }}</div>
+        @elseif ($errors->any()) {{-- For any other validation errors --}}
             <div class="mb-4 text-red-500 text-sm text-center">{{ $errors->first() }}</div>
         @endif
 

@@ -114,18 +114,18 @@
         </div>
 
         <!-- Phân trang -->
-        @if (!empty($leads))
-            <div class="mt-4 flex justify-center">
-                <nav class="inline-flex -space-x-px rounded-md shadow">
-                    @for ($i = 1; $i <= ceil(count($leads) / 10); $i++)
-                        <a href="{{ route('leads.index', array_merge(request()->query(), ['page' => $i])) }}"
-                            class="px-3 py-2 {{ request('page', 1) == $i ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 dark:text-white' }} border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
-                            {{ $i }}
-                        </a>
-                    @endfor
-                </nav>
-            </div>
-        @endif
+@if (!empty($leads))
+    <div class="mt-4 flex justify-center">
+        <nav class="inline-flex -space-x-px rounded-md shadow">
+            @for ($i = 1; $i <= ceil($total / $perPage); $i++)
+                <a href="{{ route('leads.index', array_merge(request()->query(), ['page' => $i, 'limit' => $perPage])) }}"
+                    class="px-3 py-2 {{ request('page', 1) == $i ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 dark:text-white' }} border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
+                    {{ $i }}
+                </a>
+            @endfor
+        </nav>
+    </div>
+@endif
 
         <!-- Nút xem webhook logs -->
         <div class="flex justify-end">

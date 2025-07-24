@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min } from 'class-validator';
 
 export class QueryLeadDto {
   @IsOptional()
@@ -24,4 +24,14 @@ export class QueryLeadDto {
   @IsOptional()
   @IsString()
   domain?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  limit?: number;
 }
