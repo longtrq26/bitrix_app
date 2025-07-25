@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class AnalyticsController extends Controller
 {
@@ -15,56 +16,70 @@ class AnalyticsController extends Controller
         $memberId = Session::get('member_id');
 
         if (!$domain || !$sessionToken || !$memberId) {
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
+            Log::warning('Authentication required for analytics', ['memberId' => $memberId ?? 'N/A']);
+            return redirect('/login')->with('error', 'Yêu cầu xác thực');
         }
 
         try {
-            // Gọi API lead analytics
-            $leadAnalyticsResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'analytics/leads?memberId=' . $memberId);
+            $leadAnalytics = Cache::remember("analytics:leads:{$memberId}", 900, function () use ($memberId) {
+                $response = Http::backend()->get('analytics/leads', ['memberId' => $memberId]);
 
-            // Gọi API deal analytics
-            $dealAnalyticsResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'analytics/deals?memberId=' . $memberId);
+                if (!$response->successful()) {
+                    Log::error('Failed to fetch lead analytics', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                    return [];
+                }
+                return $response->json() ?? [];
+            });
 
-            // Gọi API task analytics
-            $taskAnalyticsResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'analytics/tasks?memberId=' . $memberId);
+            $dealAnalytics = Cache::remember("analytics:deals:{$memberId}", 900, function () use ($memberId) {
+                $response = Http::backend()->get('analytics/deals', ['memberId' => $memberId]);
 
-            $leadAnalytics = $leadAnalyticsResponse->json() ?? [];
-            $dealAnalytics = $dealAnalyticsResponse->json() ?? [];
-            $taskAnalytics = $taskAnalyticsResponse->json() ?? [];
+                if (!$response->successful()) {
+                    Log::error('Failed to fetch deal analytics', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                    return [];
+                }
+                return $response->json() ?? [];
+            });
 
-            Log::debug('Lead Analytics', $leadAnalytics ?? []);
-            Log::debug('Deal Analytics', $dealAnalytics ?? []);
-            Log::debug('Task Analytics raw', ['raw' => $taskAnalyticsResponse->body()]);
-            Log::debug('Task Analytics', $taskAnalytics ?? []);
-            Log::debug('Deal Analytics raw', ['body' => $dealAnalyticsResponse->body()]);
-            Log::debug('Task Analytics raw', ['body' => $taskAnalyticsResponse->body()]);
+            $taskAnalytics = Cache::remember("analytics:tasks:{$memberId}", 900, function () use ($memberId) {
+                $response = Http::backend()->get('analytics/tasks', ['memberId' => $memberId]);
 
+                if (!$response->successful()) {
+                    Log::error('Failed to fetch task analytics', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                    return [];
+                }
+                return $response->json() ?? [];
+            });
+
+            Log::info('Fetched analytics data', [
+                'memberId' => $memberId,
+                'leadCount' => array_sum($leadAnalytics),
+                'dealCount' => count($dealAnalytics['revenueByDay'] ?? []),
+                'taskCount' => array_sum($taskAnalytics),
+            ]);
 
             return view('analytics.index', compact('leadAnalytics', 'dealAnalytics', 'taskAnalytics'));
 
         } catch (\Exception $e) {
-            Log::error('Failed to fetch analytics data', ['error' => $e->getMessage()]);
+            Log::error('Failed to fetch analytics data', [
+                'memberId' => $memberId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return view('analytics.index', [
                 'leadAnalytics' => [],
                 'dealAnalytics' => [],
                 'taskAnalytics' => [],
-            ])->with('error', 'Không thể tải dữ liệu analytics.');
+            ])->with('error', 'Không thể tải dữ liệu analytics: ' . $e->getMessage());
         }
-
     }
 }

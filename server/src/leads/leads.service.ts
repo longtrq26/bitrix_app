@@ -22,8 +22,8 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 @Injectable()
 export class LeadsService {
   private readonly limiter = new Bottleneck({
-    maxConcurrent: 1,
-    minTime: 500,
+    maxConcurrent: 2,
+    minTime: 333,
     retryOptions: {
       maxRetries: 3,
       delay: (retryCount) => retryCount * 1000,
@@ -35,7 +35,6 @@ export class LeadsService {
             `Retrying request due to status code: ${status}. Attempt: ${error.config?.url}`,
           );
         }
-
         return shouldRetry;
       },
     },
