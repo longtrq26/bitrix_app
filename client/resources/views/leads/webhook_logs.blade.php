@@ -2,18 +2,24 @@
 
 @section('content')
     <div class="space-y-6">
+        @if (session('error'))
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+                {{ session('error') }}
+            </div>
+        @endif
+
         <!-- Form lọc log -->
         <form method="GET" action="{{ route('leads.webhook_logs') }}"
             class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label class="block text-sm font-medium dark:text-gray-300">Event</label>
-                    <input type="text" name="event" value="{{ request('event') }}" placeholder="e.g., ONCRMLEADADD"
+                    <input type="text" name="event" value="{{ e(request('event')) }}" placeholder="e.g., ONCRMLEADADD"
                         class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
                     <label class="block text-sm font-medium dark:text-gray-300">Lead ID</label>
-                    <input type="text" name="leadId" value="{{ request('leadId') }}" placeholder="Lead ID"
+                    <input type="text" name="leadId" value="{{ e(request('leadId')) }}" placeholder="Lead ID"
                         class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="flex items-end">
@@ -37,9 +43,9 @@
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                     @forelse ($logs as $log)
                         <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                            <td class="px-6 py-4 dark:text-white">{{ $log['id'] }}</td>
-                            <td class="px-6 py-4 dark:text-white">{{ $log['event'] }}</td>
-                            <td class="px-6 py-4 dark:text-white truncate max-w-md">{{ $log['payload'] }}</td>
+                            <td class="px-6 py-4 dark:text-white">{{ e($log['id']) }}</td>
+                            <td class="px-6 py-4 dark:text-white">{{ e($log['event']) }}</td>
+                            <td class="px-6 py-4 dark:text-white truncate max-w-md">{{ e($log['payload']) }}</td>
                             <td class="px-6 py-4 dark:text-white">
                                 {{ \Carbon\Carbon::parse($log['createdAt'])->format('d/m/Y H:i') }}</td>
                         </tr>

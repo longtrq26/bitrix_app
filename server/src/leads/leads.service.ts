@@ -2,480 +2,413 @@ import { HttpService } from '@nestjs/axios';
 import {
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { AxiosError } from 'axios';
+import Bottleneck from 'bottleneck';
+import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
 import * as qs from 'qs';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from 'src/auth/auth.service';
 import { buildCacheKey } from 'src/common/utils/build-cache-key';
 import { RedisService } from 'src/redis/redis.service';
+import { Logger } from 'winston';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 
 @Injectable()
 export class LeadsService {
-  private readonly logger = new Logger(LeadsService.name);
+  private readonly limiter = new Bottleneck({
+    maxConcurrent: 1,
+    minTime: 500,
+    retryOptions: {
+      maxRetries: 3,
+      delay: (retryCount) => retryCount * 1000,
+      retryOn: (error: AxiosError) => {
+        const status = error?.response?.status;
+        const shouldRetry = status === 429 || (status && status >= 500);
+        if (shouldRetry) {
+          this.logger.warn(
+            `Retrying request due to status code: ${status}. Attempt: ${error.config?.url}`,
+          );
+        }
+
+        return shouldRetry;
+      },
+    },
+  });
 
   constructor(
     private readonly httpService: HttpService,
     private readonly redisService: RedisService,
     private readonly authService: AuthService,
-  ) {}
+    @Inject(WINSTON_MODULE_PROVIDER) private readonly logger: Logger,
+  ) {
+    this.limiter.on('failed', (error, info) => {
+      this.logger.error(
+        `Bottleneck request failed: ${error.message}. Retries left: ${info.retryCount}.`,
+      );
+    });
+    this.limiter.on('error', (error) => {
+      this.logger.error(
+        `Bottleneck encountered an unhandled error: ${error.message}`,
+      );
+    });
+    this.limiter.on('depleted', () => {
+      this.logger.debug('Bottleneck queue is depleted.');
+    });
+    this.limiter.on('queued', () => {
+      this.logger.debug('Request queued in Bottleneck.');
+    });
+  }
 
   async getLeads(dto: QueryLeadDto, memberId: string) {
-    const domain = dto.domain || (await this.authService.getDomain(memberId));
-    this.validateDomain(domain);
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const domain =
+          dto.domain || (await this.authService.getDomain(memberId));
+        this.validateDomain(domain);
 
-    const page = Number(dto.page) || 1;
-    const limit = Number(dto.limit) || 50;
-    const start = (page - 1) * limit;
+        const page = Number(dto.page) || 1;
+        const limit = Number(dto.limit) || 50;
+        const start = (page - 1) * limit;
 
-    const cacheKey = buildCacheKey(memberId, dto);
-    const cached = await this.redisService.get(cacheKey);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        this.logger.log(`Cache hit for leads: ${cacheKey}`);
-        return parsed;
-      } catch (error) {
-        this.logger.warn(
-          `Failed to parse cached leads for key: ${cacheKey}, deleting cache`,
+        const cacheKey = buildCacheKey(memberId, dto);
+        const cached = await this.redisService.get(cacheKey);
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            this.logger.debug(`Cache hit for leads: ${cacheKey}`, { memberId });
+            return parsed;
+          } catch (error) {
+            this.logger.warn(
+              `Failed to parse cached leads for key: ${cacheKey}, deleting cache`,
+              { memberId, error },
+            );
+            await this.redisService.del(cacheKey);
+          }
+        }
+
+        const url = `https://${domain}/rest/batch`;
+        const cmd = this.buildLeadBatchQuery({ ...dto, start });
+
+        const response = await firstValueFrom(
+          this.httpService.post(
+            url,
+            { halt: 0, cmd },
+            { headers: { Authorization: `Bearer ${token}` } },
+          ),
         );
-        await this.redisService.del(cacheKey);
-      }
-    }
 
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken) {
-      this.logger.error(`No access token for memberId: ${memberId}`);
-      throw new UnauthorizedException('Access token not available.');
-    }
+        this.logger.debug(`Batch response for leads`, {
+          memberId,
+          response: response.data,
+        });
 
-    const url = `https://${domain}/rest/batch`;
-    const cmd = this.buildLeadBatchQuery({ ...dto, start });
+        const data = response.data?.result?.result || {};
+        const error = response.data?.result?.error;
 
-    const fetchLeads = async (token: string) => {
-      const response = await firstValueFrom(
-        this.httpService.post(
-          url,
-          { halt: 0, cmd },
-          { headers: { Authorization: `Bearer ${token}` } },
-        ),
-      );
+        if (error) {
+          this.logger.error(`Batch API error`, { memberId, error });
+          throw new HttpException(
+            error?.leads?.error_description || 'Failed to fetch leads',
+            error?.leads?.error || HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
 
-      this.logger.debug(
-        `Batch response: ${JSON.stringify(response.data, null, 2)}`,
-      );
+        const result = {
+          leads: data?.leads || [],
+          fields: data?.fields || {},
+          statuses: data?.statuses || [],
+          sources: data?.sources || [],
+          total: data?.leads?.total || 0,
+          page,
+          limit,
+        };
 
-      const data = response.data?.result?.result || {};
-      const error = response.data?.result?.error;
+        await this.redisService.set(cacheKey, JSON.stringify(result), 600);
 
-      if (error) {
-        this.logger.error(`Batch API error: ${JSON.stringify(error)}`);
-        throw new HttpException(
-          error?.leads?.error_description || 'Failed to fetch leads',
-          error?.leads?.error || 500,
-        );
-      }
+        this.logger.info(`Fetched and cached leads`, {
+          memberId,
+          leadCount: result.leads.length,
+        });
 
-      return {
-        leads: data?.leads || [],
-        fields: data?.fields || {},
-        statuses: data?.statuses || [],
-        sources: data?.sources || [],
-        total: data?.leads?.total || 0,
-        page,
-        limit,
-      };
-    };
-
-    try {
-      const response = await fetchLeads(accessToken);
-      await this.redisService.set(cacheKey, JSON.stringify(response), 600);
-      this.logger.log(`Fetched and cached leads for memberId: ${memberId}`);
-      return response;
-    } catch (error) {
-      this.logger.error(`Failed to fetch leads: ${error.message}`, error.stack);
-      if (error.response?.status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await fetchLeads(newToken);
-        await this.redisService.set(
-          cacheKey,
-          JSON.stringify(retryResponse),
-          600,
-        );
-        this.logger.log(
-          `Fetched and cached leads after retry for memberId: ${memberId}`,
-        );
-        return retryResponse;
-      }
-      throw new HttpException(
-        error.response?.data?.error_description ||
-          error.message ||
-          'Failed to fetch leads',
-        error.response?.status || 500,
-      );
-    }
+        return result;
+      }, memberId),
+    );
   }
 
   async getLead(id: string, memberId: string) {
-    const leadId = Number(id);
-    if (isNaN(leadId) || leadId <= 0) {
-      this.logger.error(`Invalid lead ID: ${id}`);
-      throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
-    }
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const leadId = Number(id);
+        if (isNaN(leadId) || leadId <= 0) {
+          this.logger.error(`Invalid lead ID: ${id}`, { memberId });
+          throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
+        }
 
-    const domain = await this.authService.getDomain(memberId);
-    this.validateDomain(domain);
+        const domain = await this.authService.getDomain(memberId);
+        this.validateDomain(domain);
 
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken) {
-      this.logger.error(`No access token for memberId: ${memberId}`);
-      throw new UnauthorizedException('Access token not available.');
-    }
+        const cacheKey = `lead:${memberId}:${leadId}`;
+        const cached = await this.redisService.get(cacheKey);
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            this.logger.debug(`Cache hit for lead: ${cacheKey}`, {
+              memberId,
+              leadId,
+            });
+            return parsed;
+          } catch (error) {
+            this.logger.warn(
+              `Failed to parse cached lead for key: ${cacheKey}, deleting cache`,
+              { memberId, leadId, error },
+            );
+            await this.redisService.del(cacheKey);
+          }
+        }
 
-    const cacheKey = `lead:${memberId}:${leadId}`;
-    const cached = await this.redisService.get(cacheKey);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        this.logger.log(`Cache hit for lead: ${cacheKey}`);
-        return parsed;
-      } catch (error) {
-        this.logger.warn(
-          `Failed to parse cached lead for key: ${cacheKey}, deleting cache`,
-        );
-        await this.redisService.del(cacheKey);
-      }
-    }
-
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get(
-          `https://${domain}/rest/crm.lead.get?id=${leadId}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        ),
-      );
-
-      const lead = response.data.result || {};
-      await this.redisService.set(cacheKey, JSON.stringify(lead), 600);
-      this.logger.log(
-        `Fetched and cached lead ${leadId} for memberId: ${memberId}`,
-      );
-      return lead;
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch lead ${leadId}: ${error.message}`,
-        error.stack,
-      );
-      if (error.response?.status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await firstValueFrom(
+        const response = await firstValueFrom(
           this.httpService.get(
             `https://${domain}/rest/crm.lead.get?id=${leadId}`,
-            { headers: { Authorization: `Bearer ${newToken}` } },
+            { headers: { Authorization: `Bearer ${token}` } },
           ),
         );
-        const lead = retryResponse.data.result || {};
+
+        const lead = response.data.result || {};
+
         await this.redisService.set(cacheKey, JSON.stringify(lead), 600);
-        this.logger.log(
-          `Fetched and cached lead ${leadId} after retry for memberId: ${memberId}`,
-        );
+
+        this.logger.info(`Fetched and cached lead ${leadId}`, { memberId });
+
         return lead;
-      }
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to fetch lead',
-        error.response?.status || 500,
-      );
-    }
+      }, memberId),
+    );
   }
 
   async createLead(dto: CreateLeadDto, memberId: string) {
-    const domain = dto.domain || (await this.authService.getDomain(memberId));
-    this.validateDomain(domain);
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const domain =
+          dto.domain || (await this.authService.getDomain(memberId));
+        this.validateDomain(domain);
 
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken) {
-      this.logger.error(`No access token for memberId: ${memberId}`);
-      throw new UnauthorizedException('Access token not available.');
-    }
+        const payload = {
+          fields: {
+            TITLE: dto.TITLE,
+            NAME: dto.NAME,
+            STATUS_ID: dto.STATUS_ID,
+            SOURCE_ID: dto.SOURCE_ID,
+            COMMENTS: dto.COMMENTS,
+            ...(dto.EMAIL && {
+              EMAIL: [{ VALUE: dto.EMAIL, VALUE_TYPE: 'WORK' }],
+            }),
+            ...(dto.PHONE && {
+              PHONE: [{ VALUE: dto.PHONE, VALUE_TYPE: 'WORK' }],
+            }),
+          },
+        };
 
-    const payload = {
-      fields: {
-        TITLE: dto.TITLE,
-        NAME: dto.NAME,
-        STATUS_ID: dto.STATUS_ID,
-        SOURCE_ID: dto.SOURCE_ID,
-        COMMENTS: dto.COMMENTS,
-        ...(dto.EMAIL && { EMAIL: [{ VALUE: dto.EMAIL, VALUE_TYPE: 'WORK' }] }),
-        ...(dto.PHONE && { PHONE: [{ VALUE: dto.PHONE, VALUE_TYPE: 'WORK' }] }),
-      },
-    };
-
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post(`https://${domain}/rest/crm.lead.add`, payload, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      );
-
-      this.logger.log(`Lead created successfully: ${response.data.result}`);
-      await this.redisService.delByPrefix(`leads:${memberId}`);
-      return response.data.result;
-    } catch (error) {
-      this.logger.error(`Failed to create lead: ${error.message}`, error.stack);
-      if (error.response?.status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await firstValueFrom(
+        const response = await firstValueFrom(
           this.httpService.post(
             `https://${domain}/rest/crm.lead.add`,
             payload,
             {
-              headers: { Authorization: `Bearer ${newToken}` },
+              headers: { Authorization: `Bearer ${token}` },
             },
           ),
         );
-        this.logger.log(
-          `Lead created successfully after retry: ${retryResponse.data.result}`,
-        );
+
+        this.logger.info(`Lead created successfully`, {
+          memberId,
+          leadId: response.data.result,
+        });
+
         await this.redisService.delByPrefix(`leads:${memberId}`);
-        return retryResponse.data.result;
-      }
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to create lead',
-        error.response?.status || 500,
-      );
-    }
+
+        return response.data.result;
+      }, memberId),
+    );
   }
 
   async updateLead(id: string, dto: UpdateLeadDto, memberId: string) {
-    const domain = dto.domain || (await this.authService.getDomain(memberId));
-    this.validateDomain(domain);
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const leadId = Number(id);
+        if (isNaN(leadId) || leadId <= 0) {
+          this.logger.error(`Invalid lead ID: ${id}`, { memberId });
+          throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
+        }
 
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken) {
-      this.logger.error(`No access token for memberId: ${memberId}`);
-      throw new UnauthorizedException('Access token not available.');
-    }
+        const domain =
+          dto.domain || (await this.authService.getDomain(memberId));
+        this.validateDomain(domain);
 
-    const payload = {
-      fields: {
-        ...(dto.TITLE && { TITLE: dto.TITLE }),
-        ...(dto.NAME && { NAME: dto.NAME }),
-        ...(dto.STATUS_ID && { STATUS_ID: dto.STATUS_ID }),
-        ...(dto.SOURCE_ID && { SOURCE_ID: dto.SOURCE_ID }),
-        ...(dto.COMMENTS && { COMMENTS: dto.COMMENTS }),
-        ...(dto.EMAIL && { EMAIL: [{ VALUE: dto.EMAIL, VALUE_TYPE: 'WORK' }] }),
-        ...(dto.PHONE && { PHONE: [{ VALUE: dto.PHONE, VALUE_TYPE: 'WORK' }] }),
-      },
-    };
+        const payload = {
+          fields: {
+            ...(dto.TITLE && { TITLE: dto.TITLE }),
+            ...(dto.NAME && { NAME: dto.NAME }),
+            ...(dto.STATUS_ID && { STATUS_ID: dto.STATUS_ID }),
+            ...(dto.SOURCE_ID && { SOURCE_ID: dto.SOURCE_ID }),
+            ...(dto.COMMENTS && { COMMENTS: dto.COMMENTS }),
+            ...(dto.EMAIL && {
+              EMAIL: [{ VALUE: dto.EMAIL, VALUE_TYPE: 'WORK' }],
+            }),
+            ...(dto.PHONE && {
+              PHONE: [{ VALUE: dto.PHONE, VALUE_TYPE: 'WORK' }],
+            }),
+          },
+        };
 
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post(
-          `https://${domain}/rest/crm.lead.update?id=${id}`,
-          payload,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        ),
-      );
-
-      this.logger.log(`Lead updated successfully: ${id}`);
-      await this.redisService.delByPrefix(`leads:${memberId}`);
-      return response.data.result;
-    } catch (error) {
-      this.logger.error(`Failed to update lead: ${error.message}`, error.stack);
-      if (error.response?.status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await firstValueFrom(
+        const response = await firstValueFrom(
           this.httpService.post(
-            `https://${domain}/rest/crm.lead.update?id=${id}`,
+            `https://${domain}/rest/crm.lead.update?id=${leadId}`,
             payload,
-            { headers: { Authorization: `Bearer ${newToken}` } },
+            { headers: { Authorization: `Bearer ${token}` } },
           ),
         );
-        this.logger.log(`Lead updated successfully after retry: ${id}`);
+
+        this.logger.info(`Lead updated successfully`, { memberId, leadId });
+
         await this.redisService.delByPrefix(`leads:${memberId}`);
-        return retryResponse.data.result;
-      }
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to update lead',
-        error.response?.status || 500,
-      );
-    }
+
+        return response.data.result;
+      }, memberId),
+    );
   }
 
   async deleteLead(id: string, memberId: string) {
-    const leadId = Number(id);
-    if (isNaN(leadId) || leadId <= 0) {
-      this.logger.error(`Invalid lead ID: ${id}`);
-      throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
-    }
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const leadId = Number(id);
+        if (isNaN(leadId) || leadId <= 0) {
+          this.logger.error(`Invalid lead ID: ${id}`, { memberId });
+          throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
+        }
 
-    const domain = await this.authService.getDomain(memberId);
-    this.validateDomain(domain);
+        const domain = await this.authService.getDomain(memberId);
+        this.validateDomain(domain);
 
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken) {
-      this.logger.error(`No access token for memberId: ${memberId}`);
-      throw new UnauthorizedException('Access token not available.');
-    }
+        const deleteUrl = `https://${domain}/rest/crm.lead.delete?id=${leadId}`;
 
-    const deleteUrl = `https://${domain}/rest/crm.lead.delete?id=${leadId}`;
-
-    try {
-      const response = await firstValueFrom(
-        this.httpService.post(
-          deleteUrl,
-          {},
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          },
-        ),
-      );
-
-      this.logger.log(`Lead deleted successfully: ${leadId}`);
-      await this.redisService.delByPrefix(`leads:${memberId}`);
-      return response.data.result;
-    } catch (error) {
-      const status = error.response?.status || 500;
-      const bitrixError = error.response?.data;
-
-      this.logger.error(`Failed to delete lead`, {
-        leadId,
-        status,
-        bitrixError,
-      });
-
-      if (status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await firstValueFrom(
+        const response = await firstValueFrom(
           this.httpService.post(
             deleteUrl,
             {},
-            {
-              headers: { Authorization: `Bearer ${newToken}` },
-            },
+            { headers: { Authorization: `Bearer ${token}` } },
           ),
         );
-        this.logger.log(`Lead deleted successfully after retry: ${leadId}`);
-        await this.redisService.delByPrefix(`leads:${memberId}`);
-        return retryResponse.data.result;
-      }
 
-      throw new HttpException(
-        bitrixError?.error_description || 'Failed to delete lead',
-        status,
-      );
-    }
+        this.logger.info(`Lead deleted successfully`, { memberId, leadId });
+
+        await this.redisService.delByPrefix(`leads:${memberId}`);
+
+        return response.data.result;
+      }, memberId),
+    );
   }
 
   async getLeadTasks(id: string, memberId: string) {
-    const domain = await this.authService.getDomain(memberId);
-    this.validateDomain(domain);
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken)
-      throw new UnauthorizedException('Access token not available.');
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get(
-          `https://${domain}/rest/tasks.task.list?filter[LEAD_ID]=${id}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        ),
-      );
-      this.logger.debug(
-        `Tasks response for lead ${id}: ${JSON.stringify(response.data)}`,
-      );
-      return (
-        response.data.result.tasks?.map((task) => ({
-          ID: task.id || 'N/A',
-          TITLE: task.title || 'N/A',
-          STATUS: task.status || 'N/A',
-        })) || []
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch tasks for lead ${id}: ${error.message}`,
-        error.stack,
-      );
-      if (error.response?.status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await firstValueFrom(
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const leadId = Number(id);
+        if (isNaN(leadId) || leadId <= 0) {
+          this.logger.error(`Invalid lead ID: ${id}`, { memberId });
+          throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
+        }
+
+        const domain = await this.authService.getDomain(memberId);
+        this.validateDomain(domain);
+
+        const response = await firstValueFrom(
           this.httpService.get(
-            `https://${domain}/rest/tasks.task.list?filter[LEAD_ID]=${id}`,
-            { headers: { Authorization: `Bearer ${newToken}` } },
+            `https://${domain}/rest/tasks.task.list?filter[LEAD_ID]=${leadId}`,
+            { headers: { Authorization: `Bearer ${token}` } },
           ),
         );
-        this.logger.debug(
-          `Retry tasks response for lead ${id}: ${JSON.stringify(retryResponse.data)}`,
-        );
+
+        this.logger.debug(`Tasks response for lead ${leadId}`, {
+          memberId,
+          response: response.data,
+        });
+
         return (
-          retryResponse.data.result.tasks?.map((task) => ({
+          response.data.result.tasks?.map((task) => ({
             ID: task.id || 'N/A',
             TITLE: task.title || 'N/A',
             STATUS: task.status || 'N/A',
           })) || []
         );
-      }
-      throw new HttpException(
-        error.response?.data?.error_description || 'Failed to fetch tasks',
-        error.response?.status || 500,
-      );
-    }
+      }, memberId),
+    );
   }
 
   async getLeadDeals(id: string, memberId: string) {
-    const domain = await this.authService.getDomain(memberId);
-    this.validateDomain(domain);
-    const accessToken = await this.authService.getAccessToken(memberId);
-    if (!accessToken)
-      throw new UnauthorizedException('Access token not available.');
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get(
-          `https://${domain}/rest/crm.deal.list?filter[LEAD_ID]=${id}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        ),
-      );
-      this.logger.debug(
-        `Deals response for lead ${id}: ${JSON.stringify(response.data)}`,
-      );
-      return (
-        response.data.result?.map((deal) => ({
-          ID: deal.id || deal.ID || 'N/A',
-          TITLE: deal.title || deal.TITLE || 'N/A',
-          OPPORTUNITY: deal.opportunity || deal.OPPORTUNITY || 'N/A',
-        })) || []
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch deals for lead ${id}: ${error.message}`,
-        error.stack,
-      );
-      if (error.response?.status === 401) {
-        const newToken = await this.authService.refreshToken(memberId);
-        const retryResponse = await firstValueFrom(
+    return this.limiter.schedule(() =>
+      this.executeWithRetry(async (token: string) => {
+        const leadId = Number(id);
+        if (isNaN(leadId) || leadId <= 0) {
+          this.logger.error(`Invalid lead ID: ${id}`, { memberId });
+          throw new HttpException('Invalid lead ID', HttpStatus.BAD_REQUEST);
+        }
+
+        const domain = await this.authService.getDomain(memberId);
+        this.validateDomain(domain);
+
+        const response = await firstValueFrom(
           this.httpService.get(
-            `https://${domain}/rest/crm.deal.list?filter[LEAD_ID]=${id}`,
-            { headers: { Authorization: `Bearer ${newToken}` } },
+            `https://${domain}/rest/crm.deal.list?filter[LEAD_ID]=${leadId}`,
+            { headers: { Authorization: `Bearer ${token}` } },
           ),
         );
-        this.logger.debug(
-          `Retry deals response for lead ${id}: ${JSON.stringify(retryResponse.data)}`,
-        );
+
+        this.logger.debug(`Deals response for lead ${leadId}`, {
+          memberId,
+          response: response.data,
+        });
+
         return (
-          retryResponse.data.result?.map((deal) => ({
+          response.data.result?.map((deal) => ({
             ID: deal.id || deal.ID || 'N/A',
             TITLE: deal.title || deal.TITLE || 'N/A',
             OPPORTUNITY: deal.opportunity || deal.OPPORTUNITY || 'N/A',
           })) || []
         );
+      }, memberId),
+    );
+  }
+
+  private async executeWithRetry<T>(
+    fn: (token: string) => Promise<T>,
+    memberId: string,
+  ): Promise<T> {
+    try {
+      const accessToken = await this.authService.getAccessToken(memberId);
+      if (!accessToken) {
+        this.logger.error(`No access token for memberId: ${memberId}`);
+        throw new UnauthorizedException('Access token not available.');
       }
+      return await fn(accessToken);
+    } catch (error) {
+      if (error.response?.status === 401) {
+        this.logger.warn(
+          `Access token expired for memberId: ${memberId}, attempting refresh`,
+        );
+        const newToken = await this.authService.refreshToken(memberId);
+        return await fn(newToken);
+      }
+      this.logger.error(`Operation failed for memberId: ${memberId}`, {
+        error,
+      });
       throw new HttpException(
-        error.response?.data?.error_description || 'Failed to fetch deals',
-        error.response?.status || 500,
+        error.response?.data?.error_description ||
+          error.message ||
+          'Operation failed',
+        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -515,7 +448,7 @@ export class LeadsService {
     const query = qs.stringify(
       { filter, order, start: dto.start || 0, select: ['*', 'EMAIL', 'PHONE'] },
       {
-        encode: false,
+        encode: true,
         arrayFormat: 'brackets',
         allowDots: true,
       },

@@ -19,33 +19,22 @@ class LeadController extends Controller
 
     public function index(Request $request)
     {
-        Log::debug('Session in /leads page', Session::all());
-
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required: Missing domain, session_token, or member_id');
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         $query = array_merge(
             $request->only(['find', 'status', 'source', 'date', 'sort', 'page', 'limit']),
             ['domain' => $domain]
         );
-        Log::debug('Query parameters received in LeadController', ['query' => $query]);
+        Log::debug('Query parameters received in LeadController', ['query' => $query, 'memberId' => $memberId]);
 
         try {
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'leads', $query);
+            $response = Http::backend()->get('leads', $query);
 
             if ($response->failed()) {
                 Log::error('Failed to fetch leads', [
+                    'memberId' => $memberId,
                     'response' => $response->json(),
                     'status' => $response->status(),
                 ]);
@@ -64,6 +53,7 @@ class LeadController extends Controller
             $recentWebhooks = $this->checkRecentWebhooks($sessionToken, $memberId);
 
             Log::info('Fetched leads', [
+                'memberId' => $memberId,
                 'lead_count' => count($leads),
                 'statuses_count' => count($statuses),
                 'sources_count' => count($sources),
@@ -72,33 +62,27 @@ class LeadController extends Controller
 
             return view('leads.index', compact('leads', 'fields', 'statuses', 'sources', 'recentWebhooks', 'total', 'currentPage', 'perPage'));
         } catch (\Exception $e) {
-            Log::error('Error fetching leads', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error fetching leads', [
+                'memberId' => $memberId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while fetching leads: ' . $e->getMessage()]);
         }
     }
 
-    public function create()
+    public function create(Request $request)
     {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required for create lead');
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         try {
-            // Fetch statuses and sources for dropdowns
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'leads', ['domain' => $domain]);
+            $response = Http::backend()->get('leads', ['domain' => $domain]);
 
             if ($response->failed()) {
                 Log::error('Failed to fetch statuses and sources for create lead', [
+                    'memberId' => $memberId,
                     'response' => $response->json(),
                     'status' => $response->status(),
                 ]);
@@ -110,27 +94,27 @@ class LeadController extends Controller
             $sources = $payload['sources'] ?? [];
 
             Log::info('Fetched data for create lead form', [
+                'memberId' => $memberId,
                 'statuses_count' => count($statuses),
                 'sources_count' => count($sources),
             ]);
 
             return view('leads.create', compact('statuses', 'sources'));
         } catch (\Exception $e) {
-            Log::error('Error fetching data for create lead form', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error fetching data for create lead form', [
+                'memberId' => $memberId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while loading create lead form: ' . $e->getMessage()]);
         }
     }
 
     public function store(Request $request)
     {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required for store lead');
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         $request->validate([
             'TITLE' => 'required|string|max:100',
@@ -143,81 +127,54 @@ class LeadController extends Controller
         ]);
 
         try {
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->post(env('BASE_API_URL') . 'leads', array_merge($request->all(), ['domain' => $domain]));
+            $response = Http::backend()->post('leads', array_merge($request->all(), ['domain' => $domain]));
 
             if ($response->successful()) {
-                Log::info('Lead created successfully', ['response' => $response->json()]);
+                Log::info('Lead created successfully', ['memberId' => $memberId, 'response' => $response->json()]);
                 return redirect()->route('leads.index')->with('success', 'Lead created successfully');
             }
 
-            Log::error('Failed to create lead', ['response' => $response->json()]);
+            Log::error('Failed to create lead', [
+                'memberId' => $memberId,
+                'response' => $response->json(),
+                'status' => $response->status(),
+            ]);
             return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to create lead']);
         } catch (\Exception $e) {
-            Log::error('Error creating lead', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error creating lead', [
+                'memberId' => $memberId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while creating lead: ' . $e->getMessage()]);
         }
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required for show lead', ['id' => $id]);
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         try {
-            // Fetch lead details
-            $leadResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . "leads/{$id}");
-
+            $leadResponse = Http::backend()->get("leads/{$id}");
             if ($leadResponse->failed()) {
                 Log::error('Failed to fetch lead details', [
-                    'id' => $id,
+                    'memberId' => $memberId,
+                    'leadId' => $id,
                     'response' => $leadResponse->json(),
                     'status' => $leadResponse->status(),
                 ]);
                 return back()->withErrors(['error' => $leadResponse->json()['message'] ?? 'Failed to fetch lead details']);
             }
 
-            // Fetch tasks
-            $tasksResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . "leads/{$id}/tasks");
-
-            // Fetch deals
-            $dealsResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . "leads/{$id}/deals");
-
-            // Fetch statuses and sources for dropdowns
-            $listResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'leads', ['domain' => $domain]);
+            $tasksResponse = Http::backend()->get("leads/{$id}/tasks");
+            $dealsResponse = Http::backend()->get("leads/{$id}/deals");
+            $listResponse = Http::backend()->get('leads', ['domain' => $domain]);
 
             if ($listResponse->failed()) {
                 Log::error('Failed to fetch statuses and sources', [
+                    'memberId' => $memberId,
                     'response' => $listResponse->json(),
                     'status' => $listResponse->status(),
                 ]);
@@ -229,12 +186,11 @@ class LeadController extends Controller
             $statuses = $listResponse->json()['statuses'] ?? [];
             $sources = $listResponse->json()['sources'] ?? [];
 
-            // Check for recent webhook events for this lead
             $recentWebhooks = $this->checkRecentWebhooks($sessionToken, $memberId, $id);
 
             Log::info('Fetched lead details', [
-                'id' => $id,
-                'lead' => $lead,
+                'memberId' => $memberId,
+                'leadId' => $id,
                 'task_count' => count($tasks),
                 'deal_count' => count($deals),
                 'recent_webhooks' => $recentWebhooks,
@@ -242,83 +198,71 @@ class LeadController extends Controller
 
             return view('leads.show', compact('lead', 'tasks', 'deals', 'id', 'statuses', 'sources', 'recentWebhooks'));
         } catch (\Exception $e) {
-            Log::error('Error fetching lead details', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error fetching lead details', [
+                'memberId' => $memberId,
+                'leadId' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while fetching lead details: ' . $e->getMessage()]);
         }
     }
 
-    public function edit($id)
+    public function edit(Request $request, $id)
     {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required for edit lead', ['id' => $id]);
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         try {
-            // Fetch lead details
-            $leadResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . "leads/{$id}");
-
+            $leadResponse = Http::backend()->get("leads/{$id}");
             if ($leadResponse->failed()) {
                 Log::error('Failed to fetch lead details for edit', [
-                    'id' => $id,
+                    'memberId' => $memberId,
+                    'leadId' => $id,
                     'response' => $leadResponse->json(),
                     'status' => $leadResponse->status(),
                 ]);
                 return back()->withErrors(['error' => $leadResponse->json()['message'] ?? 'Failed to fetch lead details']);
             }
 
-            // Fetch statuses and sources for dropdowns
-            $listResponse = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'leads', ['domain' => $domain]);
-
+            $listResponse = Http::backend()->get('leads', ['domain' => $domain]);
             if ($listResponse->failed()) {
                 Log::error('Failed to fetch statuses and sources for edit lead', [
+                    'memberId' => $memberId,
                     'response' => $listResponse->json(),
                     'status' => $listResponse->status(),
                 ]);
             }
 
             $lead = $leadResponse->json() ?? [];
-            $statuses = $listResponse->json()['statuses'] ?? [];
-            $sources = $listResponse->json()['sources'] ?? [];
+            $statuses = $listResponse->successful() ? $listResponse->json()['statuses'] : [];
+            $sources = $listResponse->successful() ? $listResponse->json()['sources'] : [];
 
             Log::info('Fetched data for edit lead form', [
-                'id' => $id,
-                'lead' => $lead,
+                'memberId' => $memberId,
+                'leadId' => $id,
                 'statuses_count' => count($statuses),
                 'sources_count' => count($sources),
             ]);
 
             return view('leads.edit', compact('lead', 'id', 'statuses', 'sources'));
         } catch (\Exception $e) {
-            Log::error('Error fetching data for edit lead form', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error fetching data for edit lead form', [
+                'memberId' => $memberId,
+                'leadId' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while loading edit lead form: ' . $e->getMessage()]);
         }
     }
 
     public function update(Request $request, $id)
     {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required for update lead', ['id' => $id]);
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         $request->validate([
             'TITLE' => 'required|string|max:100',
@@ -331,62 +275,67 @@ class LeadController extends Controller
         ]);
 
         try {
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->patch(env('BASE_API_URL') . "leads/{$id}", array_merge($request->all(), ['domain' => $domain]));
+            $response = Http::backend()->patch("leads/{$id}", array_merge($request->all(), ['domain' => $domain]));
 
             if ($response->successful()) {
-                Log::info('Lead updated successfully', ['id' => $id, 'response' => $response->json()]);
+                Log::info('Lead updated successfully', ['memberId' => $memberId, 'leadId' => $id, 'response' => $response->json()]);
                 return redirect()->route('leads.index')->with('success', 'Lead updated successfully');
             }
 
-            Log::error('Failed to update lead', ['id' => $id, 'response' => $response->json(), 'status' => $response->status()]);
+            Log::error('Failed to update lead', [
+                'memberId' => $memberId,
+                'leadId' => $id,
+                'response' => $response->json(),
+                'status' => $response->status(),
+            ]);
             return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to update lead']);
         } catch (\Exception $e) {
-            Log::error('Error updating lead', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error updating lead', [
+                'memberId' => $memberId,
+                'leadId' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while updating lead: ' . $e->getMessage()]);
         }
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        $domain = Session::get('domain');
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
-
-        if (!$domain || !$sessionToken || !$memberId) {
-            Log::error('Authentication required for delete lead', ['id' => $id]);
-            return redirect('/login')->withErrors(['msg' => 'Authentication required']);
-        }
+        $domain = $request->session()->get('domain');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
 
         try {
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->delete(env('BASE_API_URL') . "leads/{$id}");
+            $response = Http::backend()->delete("leads/{$id}");
 
             if ($response->successful()) {
-                Log::info('Lead deleted successfully', ['id' => $id, 'response' => $response->json()]);
+                Log::info('Lead deleted successfully', ['memberId' => $memberId, 'leadId' => $id, 'response' => $response->json()]);
                 return redirect()->route('leads.index')->with('success', 'Lead deleted successfully');
             }
 
-            Log::error('Failed to delete lead', ['id' => $id, 'response' => $response->json(), 'status' => $response->status()]);
+            Log::error('Failed to delete lead', [
+                'memberId' => $memberId,
+                'leadId' => $id,
+                'response' => $response->json(),
+                'status' => $response->status(),
+            ]);
             return back()->withErrors(['error' => $response->json()['message'] ?? 'Failed to delete lead']);
         } catch (\Exception $e) {
-            Log::error('Error deleting lead', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error deleting lead', [
+                'memberId' => $memberId,
+                'leadId' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return back()->withErrors(['error' => 'An error occurred while deleting lead: ' . $e->getMessage()]);
         }
     }
 
     public function webhookLogs(Request $request)
     {
-        $sessionToken = Session::get('session_token');
-        $memberId = Session::get('member_id');
+        $sessionToken = $request->session()->get('session_token');
+        $memberId = $request->session()->get('member_id');
         $page = $request->query('page', 1);
         $limit = $request->query('limit', 10);
         $event = $request->query('event');
@@ -399,23 +348,28 @@ class LeadController extends Controller
             if ($leadId)
                 $params['leadId'] = $leadId;
 
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . "webhook/logs", $params);
+            $response = Http::backend()->get("webhook/logs", $params);
 
-            $data = $response->json();
+            $data = $response->successful() ? $response->json() : [];
             $logs = $data['logs'] ?? [];
             $total = $data['total'] ?? 0;
             $currentPage = $data['page'] ?? 1;
             $perPage = $data['limit'] ?? 10;
             $totalPages = $data['totalPages'] ?? 1;
 
+            Log::info('Fetched webhook logs', [
+                'memberId' => $memberId,
+                'log_count' => count($logs),
+                'page' => $currentPage,
+            ]);
+
             return view('leads.webhook_logs', compact('logs', 'total', 'currentPage', 'perPage', 'totalPages'));
         } catch (\Exception $e) {
-            Log::error('Failed to fetch webhook logs', ['error' => $e->getMessage()]);
+            Log::error('Failed to fetch webhook logs', [
+                'memberId' => $memberId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return view('leads.webhook_logs', [
                 'logs' => [],
                 'total' => 0,
@@ -433,15 +387,12 @@ class LeadController extends Controller
             if ($leadId) {
                 $params['leadId'] = $leadId;
             }
-            $response = Http::withHeaders([
-                'X-Session-Token' => $sessionToken,
-                'X-Member-Id' => $memberId,
-            ])
-                ->withOptions(['verify' => false])
-                ->get(env('BASE_API_URL') . 'webhook/logs', $params);
+            $response = Http::backend()->get('webhook/logs', $params);
 
             if ($response->failed()) {
                 Log::error('Failed to check recent webhooks', [
+                    'memberId' => $memberId,
+                    'leadId' => $leadId,
                     'response' => $response->json(),
                     'status' => $response->status(),
                 ]);
@@ -450,16 +401,39 @@ class LeadController extends Controller
 
             $logs = $response->json()['logs'] ?? [];
             $recentCount = count(array_filter($logs, function ($log) use ($leadId) {
-                $isRecent = \Carbon\Carbon::parse($log['createdAt'])->gt(now()->subMinutes(5));
-                if ($leadId) {
-                    return $isRecent && $log['event'] === 'ONCRMLEADUPDATE' && strpos($log['payload'], '"ID":"' . $leadId . '"') !== false;
+                try {
+                    $payload = json_decode($log['payload'], true);
+                    $isRecent = \Carbon\Carbon::parse($log['createdAt'])->gt(now()->subMinutes(5));
+                    if ($leadId) {
+                        return $isRecent &&
+                            $log['event'] === 'ONCRMLEADUPDATE' &&
+                            isset($payload['ID']) &&
+                            $payload['ID'] === $leadId;
+                    }
+                    return $isRecent && in_array($log['event'], ['ONCRMLEADADD', 'ONCRMLEADUPDATE']);
+                } catch (\Exception $e) {
+                    Log::warn('Failed to parse webhook payload', [
+                        'logId' => $log['id'],
+                        'error' => $e->getMessage(),
+                    ]);
+                    return false;
                 }
-                return $isRecent && in_array($log['event'], ['ONCRMLEADADD', 'ONCRMLEADUPDATE']);
             }));
+
+            Log::debug('Checked recent webhooks', [
+                'memberId' => $memberId,
+                'leadId' => $leadId,
+                'recentCount' => $recentCount,
+            ]);
 
             return $recentCount;
         } catch (\Exception $e) {
-            Log::error('Error checking recent webhooks', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Error checking recent webhooks', [
+                'memberId' => $memberId,
+                'leadId' => $leadId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return 0;
         }
     }

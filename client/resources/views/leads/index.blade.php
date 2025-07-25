@@ -2,12 +2,23 @@
 
 @section('content')
     <div class="space-y-6">
+        @if (session('error'))
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+                {{ session('error') }}
+            </div>
+        @endif
+        @if (session('success'))
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative">
+                {{ session('success') }}
+            </div>
+        @endif
+
         <!-- Form tìm kiếm và lọc -->
         <form method="GET" action="{{ route('leads.index') }}" class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
             <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                     <label class="block text-sm font-medium dark:text-gray-300">Tìm kiếm</label>
-                    <input type="text" name="find" value="{{ request('find') }}" placeholder="Tiêu đề, tên, email..."
+                    <input type="text" name="find" value="{{ e(request('find')) }}" placeholder="Tiêu đề, tên, email..."
                         class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
@@ -16,8 +27,8 @@
                         class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                         <option value="">Tất cả trạng thái</option>
                         @foreach ($statuses ?? [] as $status)
-                            <option value="{{ $status['STATUS_ID'] }}" {{ request('status') === $status['STATUS_ID'] ? 'selected' : '' }}>
-                                {{ $status['NAME'] }}
+                            <option value="{{ e($status['STATUS_ID']) }}" {{ request('status') === $status['STATUS_ID'] ? 'selected' : '' }}>
+                                {{ e($status['NAME']) }}
                             </option>
                         @endforeach
                     </select>
@@ -28,15 +39,15 @@
                         class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                         <option value="">Tất cả nguồn</option>
                         @foreach ($sources ?? [] as $source)
-                            <option value="{{ $source['STATUS_ID'] }}" {{ request('source') === $source['STATUS_ID'] ? 'selected' : '' }}>
-                                {{ $source['NAME'] }}
+                            <option value="{{ e($source['STATUS_ID']) }}" {{ request('source') === $source['STATUS_ID'] ? 'selected' : '' }}>
+                                {{ e($source['NAME']) }}
                             </option>
                         @endforeach
                     </select>
                 </div>
                 <div>
                     <label class="block text-sm font-medium dark:text-gray-300">Ngày tạo</label>
-                    <input type="date" name="date" value="{{ request('date') }}"
+                    <input type="date" name="date" value="{{ e(request('date')) }}"
                         class="w-full border p-2 rounded dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
@@ -60,8 +71,8 @@
 
         <!-- Nút chuyển đến trang tạo lead -->
         <div class="flex justify-end">
-            <a href="{{ route('leads.create') }}"
-                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Thêm Lead</a>
+            <a href="{{ route('leads.create') }}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Thêm
+                Lead</a>
         </div>
 
         <!-- Bảng lead -->
@@ -85,13 +96,13 @@
                     @else
                         @foreach ($leads as $lead)
                             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                <td class="px-6 py-4 dark:text-white">{{ $lead['ID'] ?? 'N/A' }}</td>
-                                <td class="px-6 py-4 dark:text-white">{{ $lead['TITLE'] ?? 'N/A' }}</td>
+                                <td class="px-6 py-4 dark:text-white">{{ e($lead['ID'] ?? 'N/A') }}</td>
+                                <td class="px-6 py-4 dark:text-white">{{ e($lead['TITLE'] ?? 'N/A') }}</td>
                                 <td class="px-6 py-4 dark:text-white">
-                                    {{ collect($statuses)->firstWhere('STATUS_ID', $lead['STATUS_ID'])['NAME'] ?? $lead['STATUS_ID'] ?? 'N/A' }}
+                                    {{ e(collect($statuses)->firstWhere('STATUS_ID', $lead['STATUS_ID'])['NAME'] ?? $lead['STATUS_ID'] ?? 'N/A') }}
                                 </td>
                                 <td class="px-6 py-4 dark:text-white">
-                                    {{ collect($sources)->firstWhere('STATUS_ID', $lead['SOURCE_ID'])['NAME'] ?? $lead['SOURCE_ID'] ?? 'N/A' }}
+                                    {{ e(collect($sources)->firstWhere('STATUS_ID', $lead['SOURCE_ID'])['NAME'] ?? $lead['SOURCE_ID'] ?? 'N/A') }}
                                 </td>
                                 <td class="px-6 py-4 dark:text-white">
                                     {{ isset($lead['DATE_CREATE']) ? \Carbon\Carbon::parse($lead['DATE_CREATE'])->format('d/m/Y H:i') : 'N/A' }}
@@ -114,18 +125,18 @@
         </div>
 
         <!-- Phân trang -->
-@if (!empty($leads))
-    <div class="mt-4 flex justify-center">
-        <nav class="inline-flex -space-x-px rounded-md shadow">
-            @for ($i = 1; $i <= ceil($total / $perPage); $i++)
-                <a href="{{ route('leads.index', array_merge(request()->query(), ['page' => $i, 'limit' => $perPage])) }}"
-                    class="px-3 py-2 {{ request('page', 1) == $i ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 dark:text-white' }} border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
-                    {{ $i }}
-                </a>
-            @endfor
-        </nav>
-    </div>
-@endif
+        @if (!empty($leads) && $total > 0 && $perPage > 0)
+            <div class="mt-4 flex justify-center">
+                <nav class="inline-flex -space-x-px rounded-md shadow">
+                    @for ($i = 1; $i <= ceil($total / $perPage); $i++)
+                        <a href="{{ route('leads.index', array_merge(request()->query(), ['page' => $i, 'limit' => $perPage])) }}"
+                            class="px-3 py-2 {{ request('page', 1) == $i ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 dark:text-white' }} border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700">
+                            {{ $i }}
+                        </a>
+                    @endfor
+                </nav>
+            </div>
+        @endif
 
         <!-- Nút xem webhook logs -->
         <div class="flex justify-end">

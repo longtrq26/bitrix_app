@@ -1,7 +1,6 @@
 import {
   IsEmail,
   IsNotEmpty,
-  IsObject,
   IsOptional,
   IsString,
   Length,
@@ -38,7 +37,7 @@ export class CreateLeadDto {
   @Length(0, 1000)
   COMMENTS?: string;
 
+  @IsOptional() // Domain là tùy chọn vì có thể lấy từ authService
   @IsString()
-  @IsNotEmpty()
-  domain: string;
+  domain?: string;
 }

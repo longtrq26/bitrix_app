@@ -1,19 +1,21 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('webhook_logs')
 export class WebhookLog {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Index()
   @Column()
   event: string;
 
   @Column('text')
   payload: string;
 
+  @Index()
   @Column()
   memberId: string;
 
-  @Column()
-  createdAt: Date = new Date();
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  createdAt: Date;
 }
