@@ -1,0 +1,1155 @@
+openapi: 3.0.3
+info:
+  title: Bitrix24 CRM Automation Suite API
+  description: API for managing leads, webhooks, analytics, and OAuth 2.0 authentication with Bitrix24.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+paths:
+  /api/auth/redirect:
+    get:
+      summary: Generate Bitrix24 authorization URL
+      description: Generates an OAuth 2.0 authorization URL for Bitrix24 and redirects the user to it.
+      operationId: redirectToBitrix
+      parameters:
+        - name: domain
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-zA-Z0-9.-]+\.bitrix24\.(vn|com)$
+          description: Bitrix24 domain (e.g., yourcompany.bitrix24.vn)
+      responses:
+        '302':
+          description: Redirects to Bitrix24 authorization URL
+        '400':
+          description: Invalid domain provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid domain
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Failed to generate redirect URL
+  /api/auth/callback:
+    get:
+      summary: Handle Bitrix24 OAuth callback
+      description: Processes the OAuth callback from Bitrix24, exchanges code for tokens, sets session cookie, and redirects to client.
+      operationId: handleCallback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Authorization code from Bitrix24
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: State token to prevent CSRF
+        - name: domain
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-zA-Z0-9.-]+\.bitrix24\.(vn|com)$
+          description: Bitrix24 domain
+      responses:
+        '302':
+          description: Redirects to client with session token
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: session_token=uuid; HttpOnly; Secure; SameSite=Strict; Max-Age=600
+              description: Session token cookie
+        '400':
+          description: Invalid domain or state token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid domain
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Failed to process authentication callback
+  /api/auth/domain:
+    get:
+      summary: Get Bitrix24 domain
+      description: Retrieves the Bitrix24 domain associated with a member ID.
+      operationId: getDomain
+      parameters:
+        - name: memberId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Member ID from Bitrix24
+      responses:
+        '200':
+          description: Successfully retrieved domain
+          content:
+            application/json:
+              schema:
+                type: string
+                example: yourcompany.bitrix24.vn
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Domain not found or unauthorized access
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Failed to retrieve domain
+  /api/auth/member:
+    get:
+      summary: Get member ID from session
+      description: Retrieves the member ID associated with a session token.
+      operationId: getMemberId
+      parameters:
+        - name: session
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Session token
+      responses:
+        '200':
+          description: Successfully retrieved member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memberId:
+                    type: string
+                    example: member_123
+        '401':
+          description: Invalid session token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Invalid session
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Failed to retrieve member ID
+  /api/auth/token:
+    get:
+      summary: Get access token
+      description: Retrieves a valid access token for a member ID.
+      operationId: getAccessToken
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successfully retrieved access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    example: abc123xyz
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Token not found or expired. Please re-authenticate
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Internal server error
+  /api/auth/logout:
+    post:
+      summary: Logout user
+      description: Logs out the user by deleting session and token, and clears session cookie.
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successfully logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out successfully
+        '400':
+          description: Missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Member ID is required for logout
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Internal server error
+  /api/leads:
+    get:
+      summary: Get list of leads
+      description: Retrieves a paginated list of leads with optional filters.
+      operationId: getLeads
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: find
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search term for TITLE, NAME, or EMAIL
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by lead status ID
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by lead source ID
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter by creation date (YYYY-MM-DD)
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Sort field (e.g., DATE_CREATE)
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Bitrix24 domain
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+          description: Page number
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+          description: Number of items per page
+      responses:
+        '200':
+          description: Successfully retrieved leads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leads:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ID:
+                          type: string
+                        TITLE:
+                          type: string
+                        NAME:
+                          type: string
+                        EMAIL:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              VALUE:
+                                type: string
+                              VALUE_TYPE:
+                                type: string
+                        PHONE:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              VALUE:
+                                type: string
+                              VALUE_TYPE:
+                                type: string
+                  fields:
+                    type: object
+                  statuses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        STATUS_ID:
+                          type: string
+                        NAME:
+                          type: string
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        STATUS_ID:
+                          type: string
+                        NAME:
+                          type: string
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+        '400':
+          description: Missing member ID or invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Member ID is required
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Failed to fetch leads
+    post:
+      summary: Create a new lead
+      description: Creates a new lead in Bitrix24.
+      operationId: createLead
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLeadDto'
+      responses:
+        '200':
+          description: Successfully created lead
+          content:
+            application/json:
+              schema:
+                type: string
+                example: '123'
+        '400':
+          description: Invalid input or missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Member ID is required
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Operation failed
+  /api/leads/{id}:
+    get:
+      summary: Get lead details
+      description: Retrieves details of a specific lead by ID.
+      operationId: getLead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Lead ID
+      responses:
+        '200':
+          description: Successfully retrieved lead
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ID:
+                    type: string
+                  TITLE:
+                    type: string
+                  NAME:
+                    type: string
+                  EMAIL:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        VALUE:
+                          type: string
+                        VALUE_TYPE:
+                          type: string
+                  PHONE:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        VALUE:
+                          type: string
+                        VALUE_TYPE:
+                          type: string
+        '400':
+          description: Invalid lead ID or missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid lead ID
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Operation failed
+    patch:
+      summary: Update a lead
+      description: Updates an existing lead in Bitrix24.
+      operationId: updateLead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Lead ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLeadDto'
+      responses:
+        '200':
+          description: Successfully updated lead
+          content:
+            application/json:
+              schema:
+                type: boolean
+                example: true
+        '400':
+          description: Invalid lead ID or missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid lead ID
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Operation failed
+    delete:
+      summary: Delete a lead
+      description: Deletes a lead from Bitrix24.
+      operationId: deleteLead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Lead ID
+      responses:
+        '200':
+          description: Successfully deleted lead
+          content:
+            application/json:
+              schema:
+                type: boolean
+                example: true
+        '400':
+          description: Invalid lead ID or missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid lead ID
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Operation failed
+  /api/leads/{id}/tasks:
+    get:
+      summary: Get tasks for a lead
+      description: Retrieves tasks associated with a specific lead.
+      operationId: getLeadTasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Lead ID
+      responses:
+        '200':
+          description: Successfully retrieved tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ID:
+                      type: string
+                    TITLE:
+                      type: string
+                    STATUS:
+                      type: string
+        '400':
+          description: Invalid lead ID or missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid lead ID
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Operation failed
+  /api/leads/{id}/deals:
+    get:
+      summary: Get deals for a lead
+      description: Retrieves deals associated with a specific lead.
+      operationId: getLeadDeals
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Lead ID
+      responses:
+        '200':
+          description: Successfully retrieved deals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ID:
+                      type: string
+                    TITLE:
+                      type: string
+                    OPPORTUNITY:
+                      type: string
+        '400':
+          description: Invalid lead ID or missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid lead ID
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 500
+                  message:
+                    type: string
+                    example: Operation failed
+  /api/webhook/logs:
+    get:
+      summary: Get webhook logs
+      description: Retrieves paginated webhook logs filtered by event and description.
+      operationId: getWebhookLogs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+          description: Number of items per page
+        - name: event
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by event type (e.g., ONCRMLEADADD)
+        - name: leadId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by lead ID
+      responses:
+        '200':
+          description: Successfully retrieved webhook logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event:
+                          type: string
+                        payload:
+                          type: string
+                        memberId:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  totalPages:
+                    type: integer
+        '400':
+          description: Missing member ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid description
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Invalid authentication
+  /api/analytics/leads:
+    get:
+      summary: Get lead analytics
+      description: Retrieves analytics data for leads.
+      operationId: getLeadAnalytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Member ID (must match authenticated memberId)
+      responses:
+        '200':
+          description: Successfully retrieved lead analytics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+        '400':
+          description: Invalid lead ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid leadId
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+  /api/analytics/deals:
+    get:
+      summary: Get deal analytics
+      description: Retrieves analytics data for deals.
+      operationId: getDealAnalytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Member ID (must match authenticated memberId)
+      responses:
+        '200':
+          description: Successfully retrieved deal analytics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+        '400':
+          description: Invalid deal ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid dealId
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+  /api/analytics/tasks:
+    get:
+      summary: Get task analytics
+      description: Retrieves analytics data for tasks.
+      operationId: getTaskAnalytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Member ID (must match authenticated memberId)
+      responses:
+        '200':
+          description: Successfully retrieved task analytics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+        '400':
+          description: Invalid task ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 400
+                  message:
+                    type: string
+                    example: Invalid taskId
+        '401':
+          description: Unauthorized access
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    example: 401
+                  message:
+                    type: string
+                    example: Unauthorized
+components:
+  schemas:
+    CreateLeadData:
+      type: object
+      required:
+        - TITLE
+      properties:
+        TITLE:
+          type: string
+          maxLength: 100
+        NAME:
+          type: string
+        EMAIL:
+          type: string
+          format: email
+        PHONE:
+          type: string
+        STATUS_ID:
+          type: string
+        SOURCE_ID:
+          type: string
+        COMMENTS:
+          type: string
+          maxLength: 1000
+        domain:
+          type: string
+    UpdateLeadData:
+      type: object
+      properties:
+        TITLE:
+          type: string
+          maxLength: 100
+        NAME:
+          type: string
+        EMAIL:
+          type: string
+          format: email
+        PHONE:
+          type: string
+        STATUS_ID:
+          type: string
+        SOURCE_ID:
+          type: string
+        COMMENTS:
+          type: string
+          maxLength: 1000
+        domain:
+          type: string
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Requires x-member-id header for authentication
